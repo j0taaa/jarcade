@@ -1,0 +1,325 @@
+{
+  "generator": "Built-in image_gen",
+  "atlas_layout": {
+    "columns": 2,
+    "rows": 2
+  },
+  "base_prompt": "Use case: illustration-story. Asset type: a production texture atlas for Reverie, an original surreal storytelling card game. Create ONE portrait 2:3 image in a perfectly regular TWO COLUMN by TWO ROW grid of FOUR DIFFERENT original illustrations. High resolution ideally 2048x3072. Each quadrant itself is a portrait 2:3 image; exact equal quadrants, boundaries at 50% of width and height. FULL BLEED, ZERO gutters, no borders, no text, no numbers, no letters, no logos. No object crosses quadrant boundaries. Rich evocative narrative compositions with multiple poetic interpretations. Exquisite surreal storybook painting in luminous gouache and watercolor, delicate painterly texture, expressive shapes, beautiful warm/cool contrast, readable focal subjects, sophisticated but gentle, varied palettes. Entirely original art: do not reproduce any existing game card, branded character, artist's signature, or existing illustration. Scene positions are strictly top-left, top-right, bottom-left, bottom-right; this image is an atlas addressed by UV coordinates.",
+  "atlases": [
+    {
+      "file": "atlas-01.jpg",
+      "card_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "scenes": [
+        "A girl in a yellow raincoat carrying a tiny rainy cloud in a jar through a library of fluttering books.",
+        "A whale made of indigo night swimming above a coral desert while a traveler carries a lantern.",
+        "A paper staircase rises from a red teacup into a floating pear orchard with a luminous door.",
+        "An elderly gardener plants stars in window boxes on an emerald train crossing the moonlit ocean."
+      ]
+    },
+    {
+      "file": "atlas-02.jpg",
+      "card_ids": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "scenes": [
+        "A fox wearing spectacles carefully winds a huge pocket watch whose face contains a miniature autumn forest.",
+        "A ballerina dances on a lily pad beneath a glass greenhouse; her shadow becomes a flock of blue cranes.",
+        "A forgotten red umbrella floats like a boat across a city reflected upside down in a rain puddle.",
+        "A child opens a suitcase full of glowing fireflies in a snowy railway station beneath a turquoise sky."
+      ]
+    },
+    {
+      "file": "atlas-03.jpg",
+      "card_ids": [
+        8,
+        9,
+        10,
+        11
+      ],
+      "scenes": [
+        "A lighthouse on a sleeping turtle guides tiny paper boats through a sea of purple mist.",
+        "A violinist in a copper dress plays music that grows into golden wheat on an empty city rooftop.",
+        "Two travelers on opposite sides of a glass mountain exchange a red ribbon through a tiny opening.",
+        "A blue door stands alone in a golden field; behind its keyhole lies the deep midnight ocean."
+      ]
+    },
+    {
+      "file": "atlas-04.jpg",
+      "card_ids": [
+        12,
+        13,
+        14,
+        15
+      ],
+      "scenes": [
+        "An enormous white moth folds the night into a quilt over a tiny sleeping village.",
+        "A watchmaker repairs a mechanical hummingbird in a room where roots grow from the ceiling.",
+        "A orange fox sails a walnut-shell boat down a river of milk past immense sleeping flowers.",
+        "A small astronaut waters one red poppy on a moon surrounded by floating porcelain teacups."
+      ]
+    },
+    {
+      "file": "atlas-05.jpg",
+      "card_ids": [
+        16,
+        17,
+        18,
+        19
+      ],
+      "scenes": [
+        "A masked child exchanges a handful of feathers with a shadow in an empty theater lit by candlelight.",
+        "A grandmother knits an enormous blue scarf that turns into a river winding through a sunlit town.",
+        "A transparent horse carries a tiny pink orchard inside its ribs through a snowy forest.",
+        "A girl pulls a green train from a spool of thread as tiny passengers wave from the carriages."
+      ]
+    },
+    {
+      "file": "atlas-06.jpg",
+      "card_ids": [
+        20,
+        21,
+        22,
+        23
+      ],
+      "scenes": [
+        "A stone giant crouches to listen to a seedling, with a glowing city nestled inside its shoulder.",
+        "A tiny sailor crosses the folds of a giant purple velvet coat using a candle as a mast.",
+        "A pair of silver scissors cuts a window into dusk; a flock of fish escapes through it.",
+        "A bookstore stands on the back of a traveling snail while a cat reads under a small orange awning."
+      ]
+    },
+    {
+      "file": "atlas-07.jpg",
+      "card_ids": [
+        24,
+        25,
+        26,
+        27
+      ],
+      "scenes": [
+        "A dancer balances a golden egg above a landscape of cracked mirrors and soft peach dawn.",
+        "A postman delivers translucent bottles full of rainbows to a village of ceramic houses.",
+        "A sleepy bear curls around a tiny lighthouse in a forest of glowing blue mushrooms.",
+        "A red staircase spirals up inside an enormous dandelion whose seeds become silver stars."
+      ]
+    },
+    {
+      "file": "atlas-08.jpg",
+      "card_ids": [
+        28,
+        29,
+        30,
+        31
+      ],
+      "scenes": [
+        "A child conducts an orchestra of clouds using a twig, above a green field filled with empty chairs.",
+        "A pale blue dragon makes delicate snowflakes at a copper stove inside a cozy mountain cabin.",
+        "A woman in a yellow coat follows a line of painted footprints into a huge blooming seashell.",
+        "A whale-shaped hot air balloon carries a garden and two small travelers across lavender mountains."
+      ]
+    },
+    {
+      "file": "atlas-09.jpg",
+      "card_ids": [
+        32,
+        33,
+        34,
+        35
+      ],
+      "scenes": [
+        "A queen made of autumn leaves tries to catch a single falling green leaf inside a quiet palace.",
+        "A silver key floats above an underwater piano while luminous jellyfish listen in a circle.",
+        "A small robot offers a real flower to an enormous stone statue covered in old vines.",
+        "A painter uses a long ladder to repaint the moon while a tiny village waits in blue twilight."
+      ]
+    },
+    {
+      "file": "atlas-10.jpg",
+      "card_ids": [
+        36,
+        37,
+        38,
+        39
+      ],
+      "scenes": [
+        "A striped tent opens into a vast star-filled sky; one child sits outside holding a warm lantern.",
+        "A red-haired gardener trims miniature storms growing in porcelain flowerpots on a balcony.",
+        "An enormous sleeping cat becomes a snowy island where tiny travelers build a blue cabin.",
+        "A paper crane carries a lit candle through an abandoned golden cathedral filled with water."
+      ]
+    },
+    {
+      "file": "atlas-11.jpg",
+      "card_ids": [
+        40,
+        41,
+        42,
+        43
+      ],
+      "scenes": [
+        "A child looks through a window shaped like a leaf into a winter world while standing in a summer forest.",
+        "A green tram carries musical instruments instead of people through a city of lavender clouds.",
+        "A girl in a burgundy cape finds a tiny glowing sun inside a broken wooden birdhouse.",
+        "A deep blue chessboard becomes a landscape where mountains walk and a tiny person plants trees."
+      ]
+    },
+    {
+      "file": "atlas-12.jpg",
+      "card_ids": [
+        44,
+        45,
+        46,
+        47
+      ],
+      "scenes": [
+        "An elephant with translucent ears listens to two little seashells beside a sunset lake.",
+        "A baker makes crescent moons in a warm copper kitchen while stars rest on the cooling rack.",
+        "A solitary traveler carries a miniature bridge inside a lantern across a ravine of quiet mist.",
+        "A koi fish swims through an orchard in midair, scattering little orange leaves like sparks."
+      ]
+    },
+    {
+      "file": "atlas-13.jpg",
+      "card_ids": [
+        48,
+        49,
+        50,
+        51
+      ],
+      "scenes": [
+        "A child and their reflection exchange differently colored balloons across a calm glass lake.",
+        "A wooden ship sails across a vast embroidered blanket while sleeping mountains rise behind it.",
+        "A woman opens a wardrobe and discovers an entire sunlit meadow growing among the hanging coats.",
+        "A brass telescope looks into the earth instead of the sky, revealing a tiny glowing crystal city."
+      ]
+    },
+    {
+      "file": "atlas-14.jpg",
+      "card_ids": [
+        52,
+        53,
+        54,
+        55
+      ],
+      "scenes": [
+        "A little fox walks a huge silver moon on a leash through a quiet teal village.",
+        "A conductor leads a train of empty glass jars through an autumn forest, each jar holding a different season.",
+        "A girl holds a ladder horizontally and it becomes a river crossing for tiny blue birds.",
+        "A grand piano with living tree roots stands in a desert as a tiny storm gathers above it."
+      ]
+    },
+    {
+      "file": "atlas-15.jpg",
+      "card_ids": [
+        56,
+        57,
+        58,
+        59
+      ],
+      "scenes": [
+        "A lighthouse keeper carefully pours dawn from a copper kettle into the sea.",
+        "A tiny gardener climbs a gigantic sleeping person's palm to plant a bright red flower.",
+        "A traveler steps through a picture frame into a painted city while their suitcase stays outside.",
+        "A flock of golden fish circles an old clock tower that grows from a floating iceberg."
+      ]
+    },
+    {
+      "file": "atlas-16.jpg",
+      "card_ids": [
+        60,
+        61,
+        62,
+        63
+      ],
+      "scenes": [
+        "A child weaves soft clouds into a fishing net on a wooden pier above green mountains.",
+        "A owl-faced librarian gives a small glowing book to a shadow that has no owner.",
+        "A carousel of tiny galaxies turns in an empty garden under an immense orange moon.",
+        "A red bicycle rides itself across a stone bridge toward a house made from one enormous pear."
+      ]
+    },
+    {
+      "file": "atlas-17.jpg",
+      "card_ids": [
+        64,
+        65,
+        66,
+        67
+      ],
+      "scenes": [
+        "A glass castle contains a silent winter forest while roses bloom outside in vivid coral spring.",
+        "A little bear repairs an enormous paper boat on a beach covered in fallen silver stars.",
+        "An old sailor watches a flock of umbrellas migrate across a violet evening sky.",
+        "A golden acorn splits open to reveal a staircase leading into an underwater library."
+      ]
+    },
+    {
+      "file": "atlas-18.jpg",
+      "card_ids": [
+        68,
+        69,
+        70,
+        71
+      ],
+      "scenes": [
+        "A girl in a green dress listens to an enormous seashell that contains a miniature bustling railway.",
+        "A little boy paints blue shadows beneath trees while the trees themselves remain bright gold.",
+        "A porcelain swan carries a delicate village through a field of giant poppies at sunrise.",
+        "A traveler releases a tiny winter landscape from a folded white paper envelope into an autumn room."
+      ]
+    },
+    {
+      "file": "atlas-19.jpg",
+      "card_ids": [
+        72,
+        73,
+        74,
+        75
+      ],
+      "scenes": [
+        "An empty chair on a floating island casts the shadow of a person holding an umbrella.",
+        "A small moth pushes a glowing sun across a deep indigo pond while reeds become constellations.",
+        "A baker opens a loaf of bread to find a tiny warm village glowing inside.",
+        "A girl climbs down the roots of a floating willow tree toward a sea of pale pink clouds."
+      ]
+    },
+    {
+      "file": "atlas-20.jpg",
+      "card_ids": [
+        76,
+        77,
+        78,
+        79
+      ],
+      "scenes": [
+        "A diver in an antique brass suit explores an enormous teapot filled with coral gardens.",
+        "A grandmother plays a violin whose notes turn into tiny doors floating above a quiet market.",
+        "A blue fox watches its golden reflection step out of a mirror carrying a green sapling.",
+        "A lighthouse on a cliff projects a beam made of colorful migrating birds into a storm."
+      ]
+    },
+    {
+      "file": "atlas-21.jpg",
+      "card_ids": [
+        80,
+        81,
+        82,
+        83
+      ],
+      "scenes": [
+        "A child gathers fallen raindrops as glass marbles in a dawn garden while flowers shelter small stars.",
+        "A puppet made of driftwood gently cuts its strings with a feather inside a sunlit empty theater.",
+        "An enormous goldfish sleeps inside a glass mountain while tiny boats travel around its base.",
+        "A woman in a coral coat carries a crescent moon like a cradle across an emerald meadow at night."
+      ]
+    }
+  ]
+}

@@ -2,14 +2,28 @@
 name = "jarcade"
 version = "0.1.0"
 edition = "2024"
+default-run = "jarcade"
 description = "A small, battery-conscious arcade built with Macroquad"
 license = "MIT"
 
 [dependencies]
+axum = { version = "0.8.9", features = ["ws"], optional = true }
+image = { version = "0.24", default-features = false, features = ["jpeg"] }
 macroquad = { version = "=0.4.16", default-features = false }
+rand = { version = "0.10.3", optional = true }
+rand_chacha = { version = "0.9", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tower-http = { version = "0.7.1", features = ["fs"], optional = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc-rs = "=0.2.8"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+futures-util = { version = "0.3.34", features = ["sink"] }
+rustls = { version = "0.23.45", default-features = false, features = ["std", "ring", "tls12"] }
+tokio = { version = "1.53.1", features = ["rt", "net", "sync", "time", "macros"] }
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
 
 [profile.release]
 opt-level = "s"
@@ -21,6 +35,14 @@ strip = true
 name = "jarcade"
 path = "src/main.rs"
 
+[[bin]]
+name = "jarcade-server"
+path = "src/bin/room_server.rs"
+required-features = ["server"]
+
+[features]
+server = ["dep:axum", "dep:tower-http", "dep:rand"]
+
 [package.metadata.android]
 package_name = "com.jarcade.arcade"
 label = "Jarcade"
@@ -31,6 +53,9 @@ build_targets = ["aarch64-linux-android"]
 
 [[package.metadata.android.permission]]
 name = "android.permission.VIBRATE"
+
+[[package.metadata.android.permission]]
+name = "android.permission.INTERNET"
 
 [package.metadata.android.activity_attributes]
 "android:exported" = "true"

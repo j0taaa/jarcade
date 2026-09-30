@@ -1,8 +1,11 @@
+mod card_art;
 mod fih_art;
 mod fih_character;
 mod fih_view;
 mod game_view;
 mod mines_view;
+mod online_net;
+mod online_view;
 mod platform;
 mod ui;
 
@@ -29,6 +32,7 @@ enum Screen {
     Game,
     Mines,
     Fih,
+    Multiplayer,
 }
 #[derive(Clone, Copy)]
 enum Action {
@@ -38,6 +42,8 @@ enum Action {
     NewGame,
     NewMines,
     NewFih,
+    NewCourt,
+    NewReverie,
     TogglePause,
     TogglePower,
     ToggleHaptics,
@@ -83,6 +89,7 @@ struct App {
     fps: FpsCounter,
     fih: FihPage,
     fih_preview: FihPreview,
+    online: online_view::OnlinePage,
     previous_body: Vec<Cell>,
     render_body: Vec<Vec2>,
     multiplayer: bool,
@@ -98,6 +105,7 @@ impl App {
         let fih_preview = FihPreview::new(&fih.pet, settings.power_saver);
         Self {
             screen: Screen::Home,
+            online: online_view::OnlinePage::new(),
             settings,
             game: Snake::new(seed()),
             clock: TickClock::default(),
@@ -144,6 +152,7 @@ impl App {
         match action {
             Action::None => return false,
             Action::Home => {
+                self.online.suspend();
                 self.fih.interrupt();
                 self.fih_preview = FihPreview::new(&self.fih.pet, self.settings.power_saver);
                 self.mines.cancel_gesture();
@@ -165,6 +174,18 @@ impl App {
                 self.game.pause();
                 self.mines.choose_size();
                 self.screen = Screen::Mines;
+            }
+            Action::NewCourt | Action::NewReverie => {
+                self.game.pause();
+                self.online.enter(
+                    if matches!(action, Action::NewCourt) {
+                        jarcade::multiplayer::GameKind::Court
+                    } else {
+                        jarcade::multiplayer::GameKind::Reverie
+                    },
+                    None,
+                );
+                self.screen = Screen::Multiplayer;
             }
             Action::NewFih => {
                 self.game.pause();
@@ -193,7 +214,13 @@ impl App {
         }
         if matches!(
             action,
-            Action::Home | Action::Settings | Action::NewGame | Action::NewMines | Action::NewFih
+            Action::Home
+                | Action::Settings
+                | Action::NewGame
+                | Action::NewMines
+                | Action::NewFih
+                | Action::NewCourt
+                | Action::NewReverie
         ) {
             ui.reset_focus();
         }
@@ -274,7 +301,7 @@ impl App {
     }
 
     fn header(&mut self, ui: &mut Ui, layout: &Layout) -> Action {
-        if self.screen == Screen::Fih {
+        if matches!(self.screen, Screen::Fih | Screen::Multiplayer) {
             return Action::None;
         }
         let compact = self.screen == Screen::Mines && !self.mines.configuring;
@@ -367,18 +394,9 @@ impl App {
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        if self.multiplayer {
-            ui.centered(
-                "More games, coming soon.",
-                Rect::new(x, card_y, width, 180.0),
-                17.0,
-                ui.theme.muted,
-                false,
-            );
-            return Action::None;
-        }
-        let grid = layout.game_grid(card_y);
-        for index in 0..3 {
+        let count = if self.multiplayer { 2 } else { 3 };
+        let grid = layout.game_grid_for(card_y, count);
+        for index in 0..count {
             let card = grid.card(index);
             let image_height = grid.image_height;
             if !self.settings.power_saver {
@@ -405,14 +423,24 @@ impl App {
                 preview_size,
                 preview_size,
             );
-            if index == 0 {
+            if self.multiplayer {
+                if index == 0 {
+                    card_art::preview(ui, preview_rect);
+                } else {
+                    self.online.art.preview(ui, preview_rect);
+                }
+            } else if index == 0 {
                 self.preview.draw(preview_rect);
             } else if index == 1 {
                 self.mines_preview.draw(preview_rect);
             } else {
                 self.fih_preview.draw(preview_rect);
             }
-            let title = ["Snake", "Minesweeper", "Fih"][index];
+            let title = if self.multiplayer {
+                ["Court", "Reverie"][index]
+            } else {
+                ["Snake", "Minesweeper", "Fih"][index]
+            };
             let title_size = (19.0 * (card.w - 24.0) / ui.text_width(title, 19.0, true)).min(19.0);
             ui.heading(
                 title,
@@ -422,7 +450,11 @@ impl App {
                 ui.theme.text,
             );
             ui.label(
-                ["Classic", "Puzzle", "Pet"][index],
+                if self.multiplayer {
+                    ["Bluff · 2–6", "Stories · 3–8"][index]
+                } else {
+                    ["Classic", "Puzzle", "Pet"][index]
+                },
                 card.x + 12.0,
                 card.y + image_height + 46.0,
                 12.0,
@@ -449,7 +481,13 @@ impl App {
                 },
             );
             if ui.hit(card) {
-                return if index == 0 {
+                return if self.multiplayer {
+                    if index == 0 {
+                        Action::NewCourt
+                    } else {
+                        Action::NewReverie
+                    }
+                } else if index == 0 {
                     Action::NewGame
                 } else if index == 1 {
                     Action::NewMines
@@ -459,7 +497,11 @@ impl App {
             }
         }
         if !ui.keyboard_focus && is_key_pressed(KeyCode::Enter) {
-            return Action::NewGame;
+            return if self.multiplayer {
+                Action::NewCourt
+            } else {
+                Action::NewGame
+            };
         }
         Action::None
     }
@@ -703,6 +745,11 @@ async fn main() {
     platform::configure_display();
     let mut ui = Ui::new();
     let mut app = App::new(&ui);
+    if let Some((game, code)) = platform::invite() {
+        app.online.enter(game, Some(code));
+        app.screen = Screen::Multiplayer;
+        app.multiplayer = true;
+    }
     let timer = platform::WakeTimer::new();
     let subscriber = macroquad::input::utils::register_input_subscriber();
     let mut input = SnakeInput::default();
@@ -725,12 +772,21 @@ async fn main() {
             app.mines.cancel_gesture();
             input.interrupted = false;
         }
+        if app.screen == Screen::Multiplayer {
+            app.online.poll();
+        }
         ui.begin(app.settings.power_saver, input.pointer);
         let mut action = Action::None;
         if is_key_pressed(KeyCode::Escape) {
             action = if app.screen == Screen::Fih {
                 ui.reset_focus();
                 if app.fih.back() {
+                    Action::Home
+                } else {
+                    Action::None
+                }
+            } else if app.screen == Screen::Multiplayer {
+                if app.online.back() {
                     Action::Home
                 } else {
                     Action::None
@@ -754,6 +810,13 @@ async fn main() {
         }
         app.advance(frame_start);
         let page_action = match app.screen {
+            Screen::Multiplayer => {
+                if app.online.draw(&mut ui, input.pointer) {
+                    Action::Home
+                } else {
+                    Action::None
+                }
+            }
             Screen::Home => app.home(&mut ui, &layout),
             Screen::Settings => app.settings_page(&mut ui, &layout),
             Screen::Game => app.game_page(&mut ui, &layout),
@@ -778,6 +841,7 @@ async fn main() {
         }
         let continuous = (app.screen == Screen::Game && app.game.status() == Status::Running)
             || (app.screen == Screen::Mines && app.mines.needs_frame())
+            || (app.screen == Screen::Multiplayer && app.online.needs_frame())
             || (app.screen == Screen::Fih
                 && app.fih.needs_frame(frame_start, app.settings.power_saver));
         let fps = app.fps.record(frame_start, continuous);
@@ -821,7 +885,7 @@ async fn main() {
                 app.mines.configuring,
                 app.mines.size,
                 app.mines.zoom_percent(),
-                app.fih.revision,
+                (app.fih.revision, app.online.revision, app.multiplayer),
                 app.fih.round.as_ref().map(|r| {
                     (
                         r.kind,
@@ -835,8 +899,13 @@ async fn main() {
         );
         if last_announcement != Some(state) {
             let message = match app.screen {
+                Screen::Multiplayer => app.online.announcement(),
                 Screen::Home => {
-                    "Jarcade. Games. Select Snake, Minesweeper, or Fih to play.".to_owned()
+                    if app.multiplayer {
+                        "Jarcade. Multiplayer. Select Court or Reverie. Online rooms.".to_owned()
+                    } else {
+                        "Jarcade. Games. Select Snake, Minesweeper, or Fih to play.".to_owned()
+                    }
                 }
                 Screen::Settings => format!(
                     "Jarcade. Settings. Power saver {}. Haptics {}. FPS counter {}.",
@@ -872,6 +941,12 @@ async fn main() {
                 // Queue the next vsync/rAF directly, without a second timer or FPS cap.
                 Some(0.0)
             }
+        } else if app.screen == Screen::Multiplayer && app.online.needs_frame() {
+            Some(if app.settings.power_saver {
+                1.0 / 30.0
+            } else {
+                0.0
+            })
         } else if app.screen == Screen::Fih {
             app.fih.delay(frame_start, app.settings.power_saver)
         } else {

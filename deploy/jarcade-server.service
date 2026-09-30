@@ -1,0 +1,25 @@
+[Unit]
+Description=Jarcade multiplayer rooms and web arcade
+After=network.target
+
+[Service]
+Type=simple
+User=jota
+Group=jota
+ExecStart=/home/jota/.local/lib/jarcade/jarcade-server
+Environment=JARCADE_BIND=127.0.0.1:8091
+Environment=JARCADE_STATIC_DIR=__STATIC_DIR__
+Environment=JARCADE_DATA_DIR=/var/lib/jarcade
+StateDirectory=jarcade
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/jarcade
+
+[Install]
+WantedBy=multi-user.target

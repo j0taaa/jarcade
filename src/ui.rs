@@ -264,6 +264,17 @@ impl Ui {
         self.hit(rect)
     }
 
+    /// Gallery and scrolling-page controls activate only on release.
+    pub fn override_pointer(&mut self, point: Option<Vec2>) -> Option<Vec2> {
+        std::mem::replace(&mut self.pointer, point)
+    }
+    pub fn keyboard_hit(&mut self, rect: Rect) -> bool {
+        let pointer = self.pointer.take();
+        let hit = self.hit(rect);
+        self.pointer = pointer;
+        hit
+    }
+
     pub fn hit(&mut self, rect: Rect) -> bool {
         let index = self.count;
         self.count += 1;

@@ -1,7 +1,7 @@
 # Jarcade
 
 A small Rust / Macroquad arcade with shared game and UI code for desktop, web,
-Android, and iOS. Play Snake, Minesweeper, and Fih.
+Android, and iOS. Play Snake, Minesweeper, Fih, Court, and Reverie.
 
 Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa/jarcade>. Hosting uses this PC and the
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
@@ -18,13 +18,13 @@ Web (Rust, Python 3; no Node dependency for building):
 ```sh
 rustup target add wasm32-unknown-unknown
 bash scripts/build-web.sh
-python3 -m http.server 8080 --directory dist
+cargo run --release --features server --bin jarcade-server
 ```
 
-Open <http://localhost:8080>. To update the public site:
+Open <http://localhost:8091>. A plain static server can preview solo games, but multiplayer requires the room service. To update the public site:
 
 ```sh
-host-app static jarcade /home/jota/projects/games/jarcade/dist
+host-app proxy jarcade 8091
 ```
 
 The web build versions asset URLs by content hash so a new release does not
@@ -59,7 +59,7 @@ the game tick; even complete gestures between frames are preserved.
 Actual FPS
 depends on the browser, operating system, and hardware. Both modes use an event-driven loop:
 menus and paused/finished rounds have no recurring application timer. There is
-no audio, network polling, or multisampling.
+no audio, network polling, or multisampling. Multiplayer uses event-driven WebSockets, with control-frame heartbeats once a minute that do not redraw the interface.
 
 Background/focus changes and long timing gaps pause play rather than advancing
 through unseen moves. Actual battery savings depend on the device and backend;
@@ -208,8 +208,7 @@ taps are rate limited; vibration is never emitted continuously with movement.
 - iOS uses UIKit impact and notification feedback generators on the main queue.
 - Desktop without a supported vibration API safely does nothing.
 
-Native code passes cross-target checks, but physical haptic feel and mobile
-packaging have not been verified on devices.
+Physical haptic feel and mobile packaging have not been verified on devices.
 
 ## Mobile builds
 
@@ -224,16 +223,15 @@ On macOS with Xcode, `bash scripts/build-ios.sh` creates an unsigned
 `xcrun simctl launch booted com.jarcade.arcade`. Real devices require signing and
 provisioning; see the [upstream iOS guide](https://macroquad.rs/articles/ios/).
 
-Linux and web release builds are verified locally. Android and iOS have compile
-and lint checks; native mobile linking, signing, safe areas, and haptic hardware
+Linux and web release builds are verified locally. Android and iOS CI checks use their native SDK toolchains. Local multiplayer cross-checks require the Android NDK and Apple SDK; native mobile linking, signing, safe areas, and haptic hardware
 still need SDK/device verification. Windows/macOS runtime testing remains.
 
 ## Checks and structure
 
 ```sh
 cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo clippy --locked --features server --all-targets -- -D warnings
+cargo test --locked --features server
 node --test scripts/*.test.cjs
 bash scripts/build-web.sh
 ```
@@ -257,6 +255,9 @@ npm install --prefix /tmp/jarcade-browser-qa playwright
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih-layouts.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih-keyboard.cjs
+# With the room service on port 8091:
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer-layouts.cjs
 ```
 
 Use `JARCADE_QA_URL` for another server and `JARCADE_CHROME` for an installed
@@ -286,3 +287,71 @@ screens, and four on wide desktops.
 The iOS bundle opts into [ProMotion](https://developer.apple.com/documentation/bundleresources/information-property-list/cadisableminimumframedurationonphone);
 the Metal view requests the attached screen’s maximum refresh rate. Native mobile
 refresh behavior still requires physical-device verification.
+
+
+## Multiplayer
+
+Open the **Multiplayer** category, enter a name, then create a room or join a
+six-character room code. Everyone marks Ready; the host starts. Games run on
+separate devices with private hands, secret submissions/votes, and explicit
+challenge/block windows. Back returns to the arcade and preserves the seat;
+Resume/Reconnect restores it, including after a refresh or server restart.
+Leave explicitly removes a lobby seat, forfeits Court, or ends a Reverie match.
+The host can open a rematch. Offline players retain their seats until they
+reconnect or leave; turn decisions have no automatic timeout.
+
+**Court** (2–6 players) uses Coup's base seven actions, role powers, challenges,
+blocks, exchanges, forced coups at ten coins, and influence elimination. Its
+original woodland portraits are drawn as Rust vectors. Regent = Duke,
+Shade = Assassin, Corsair = Captain, Envoy = Ambassador, Sentinel = Contessa.
+Each role has three cards. Everyone starts with two influences and two coins;
+the first player starts with one coin at two players. Expansion factions,
+Inquisitor, and optional advanced duel setup are outside the base game.
+
+**Reverie** (3–8 players) uses Dixit's storyteller, clues, secret decoys,
+shuffled gallery, private votes, exact base scoring, discard recycling, and
+30-point end. Normally players hold six cards; at three players they hold seven
+and submit two decoys. There are **84 original AI-generated illustrations**.
+Artwork and full prompts: [assets/reverie/README.md](assets/reverie/README.md).
+
+Tap a picture for a large preview; Select then confirm with the fixed bottom
+button. Browse by swipe, wheel, arrows or Page Up/Down. Drags and multi-touch
+never select cards. Court's table scrolls on small displays. Tab/Shift+Tab and
+Enter navigate controls. Web uses the phone/desktop text keyboard; Android provides an in-game touch keyboard because its Miniquad backend has no text IME. The ? button explains rules and original role names.
+
+These are independent adaptations with original names, interface, wording and
+artwork; neither publisher's logos or card images are bundled. Rule references:
+[Coup publisher](https://indieboardsandcards.com/our-games/coup/),
+[Coup rules transcription](https://artofthegame.github.io/coup/rulebook.pdf),
+[official Dixit 2021 rules](https://cdn.svc.asmodee.net/production-libellud/uploads/2022/03/DIXIT_REFRESH_RULES_US-UK-AU_BD.pdf).
+
+### Room service
+
+```sh
+cargo build --locked --release --features server --bin jarcade-server
+JARCADE_STATIC_DIR=/absolute/path/to/dist \
+JARCADE_DATA_DIR=/private/persistent/directory \
+JARCADE_BIND=127.0.0.1:8091 target/release/jarcade-server
+```
+
+`/ws` serves the WebSocket protocol, `/health` reports service health, and other
+paths serve the web build. Production uses the persistent [systemd service template](deploy/jarcade-server.service) and the existing HTTPS reverse proxy. Set its static directory to the published build snapshot; the process and private saves live outside the public folder. Native clients default to
+`wss://jarcade.jaypussy.site/ws`; `JARCADE_SERVER_URL` overrides it for testing.
+Server dependencies are gated by `--features server`, outside the mobile/web
+app. Android needs INTERNET permission (declared) and the NDK for Rustls/ring.
+
+The server validates membership, phase, legal actions, and card ownership;
+clients receive only their own hidden cards. Votes and decoy owners remain
+secret until scoring. Each device stores a private bearer reconnect token;
+invite URLs contain only the public game/room. Tokens and full shuffled game
+state are saved atomically in `rooms.json` with mode 0600, outside static files.
+The service prunes rooms inactive for 24 hours, caps rooms, messages and frames,
+and checks browser WebSocket origins. Local saves and host backups contain
+private seats/decks and must remain private. The room host supplies availability;
+this is a friends' room service, with no public matchmaking or accounts.
+
+Tests cover challenges, double influence loss, blocks, forced coups, card
+conservation, complete matches, all/mixed/no-correct scoring, the three-player
+variant, deck recycling, private projections, simultaneous actions, revoked
+connections, stale phases, and persistence/reconnect. Browser QA additionally
+plays full matches through separate sessions and verifies idle rendering.

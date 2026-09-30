@@ -488,3 +488,165 @@ mod ios_haptics {
         }
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    fn jarcade_session_load(p: *mut u8, n: usize) -> usize;
+    fn jarcade_session_save(p: *const u8, n: usize) -> i32;
+    fn jarcade_invite_load(p: *mut u8, n: usize) -> usize;
+    fn jarcade_copy_invite(p: *const u8, n: usize);
+    fn jarcade_editor_open(
+        p: *const u8,
+        n: usize,
+        id: i32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        max: i32,
+    );
+    fn jarcade_editor_close();
+    fn jarcade_editor_poll(p: *mut u8, n: usize) -> usize;
+}
+pub fn load_online() -> String {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut data = [0u8; 4096];
+        // SAFETY: bundled plugin copies at most the supplied buffer capacity.
+        let n = unsafe { jarcade_session_load(data.as_mut_ptr(), data.len()) }.min(data.len());
+        String::from_utf8_lossy(&data[..n]).into_owned()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        settings_path()
+            .and_then(|p| std::fs::read_to_string(p.with_file_name("online.json")).ok())
+            .unwrap_or_default()
+    }
+}
+pub fn save_online(value: &str) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: plugin reads this slice synchronously, retaining no pointers.
+    unsafe {
+        jarcade_session_save(value.as_ptr(), value.len()) != 0
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(path) = settings_path().map(|p| p.with_file_name("online.json")) else {
+            return false;
+        };
+        let tmp = path.with_extension("tmp");
+        let write = || -> std::io::Result<()> {
+            use std::io::Write;
+            std::fs::create_dir_all(path.parent().unwrap())?;
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true).truncate(true).write(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&tmp)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            }
+            file.write_all(value.as_bytes())?;
+            std::fs::rename(tmp, path)
+        };
+        write().is_ok()
+    }
+}
+pub fn invite() -> Option<(jarcade::multiplayer::GameKind, String)> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut data = [0u8; 512];
+        // SAFETY: bounded synchronous copy from the bundled plugin.
+        let n = unsafe { jarcade_invite_load(data.as_mut_ptr(), data.len()) }.min(data.len());
+        let v: serde_json::Value = serde_json::from_slice(&data[..n]).ok()?;
+        let game = match v["game"].as_str()? {
+            "court" => jarcade::multiplayer::GameKind::Court,
+            "reverie" => jarcade::multiplayer::GameKind::Reverie,
+            _ => return None,
+        };
+        Some((
+            game,
+            v["room"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .take(6)
+                .collect(),
+        ))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+pub fn copy_invite(game: jarcade::multiplayer::GameKind, room: &str) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let data = serde_json::json!({"game":game,"room":room}).to_string();
+        // SAFETY: synchronous string copy by our clipboard adapter.
+        unsafe {
+            jarcade_copy_invite(data.as_ptr(), data.len());
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (game, room);
+}
+pub fn editor_open(value: &str, id: usize, rect: macroquad::prelude::Rect, max: usize) {
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: copies value synchronously; geometry is in CSS/logical points.
+    unsafe {
+        jarcade_editor_open(
+            value.as_ptr(),
+            value.len(),
+            id as i32,
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            max as i32,
+        );
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (value, id, rect, max);
+        macroquad::miniquad::window::show_keyboard(true);
+    }
+}
+pub fn editor_close() {
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: scalar call to remove our plugin-owned editor.
+    unsafe {
+        jarcade_editor_close();
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    macroquad::miniquad::window::show_keyboard(false);
+}
+#[derive(serde::Deserialize)]
+pub struct Edit {
+    pub id: usize,
+    pub text: String,
+    pub done: bool,
+}
+pub fn editor_poll() -> Option<Edit> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut data = [0u8; 2048];
+        // SAFETY: adapter bounds its synchronous write to this buffer.
+        let n = unsafe { jarcade_editor_poll(data.as_mut_ptr(), data.len()) }.min(data.len());
+        if n == 0 {
+            None
+        } else {
+            serde_json::from_slice(&data[..n]).ok()
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}

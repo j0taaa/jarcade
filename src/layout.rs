@@ -34,6 +34,9 @@ impl GameGrid {
 
 impl Layout {
     pub fn game_grid(&self, top: f32) -> GameGrid {
+        self.game_grid_for(top, 3)
+    }
+    pub fn game_grid_for(&self, top: f32, count: usize) -> GameGrid {
         let columns = if self.content.w >= 960.0 {
             4
         } else if self.content.w >= 600.0 || (self.landscape && self.content.w >= 480.) {
@@ -49,8 +52,8 @@ impl Layout {
             gap,
             origin: vec2(self.content.x, top),
             image_height: (width * 0.88).min(
-                ((self.content.h - top - 24. - gap * (3_usize.div_ceil(columns) - 1) as f32)
-                    / 3_usize.div_ceil(columns) as f32
+                ((self.content.h - top - 24. - gap * (count.max(1).div_ceil(columns) - 1) as f32)
+                    / count.max(1).div_ceil(columns) as f32
                     - 60.)
                     .max(44.),
             ),

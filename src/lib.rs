@@ -10,6 +10,7 @@ pub mod fih_svg;
 pub mod fps;
 pub mod layout;
 pub mod minesweeper;
+pub mod multiplayer;
 pub mod settings;
 pub mod snake;
 pub mod snake_input;
