@@ -1,0 +1,37 @@
+[package]
+name = "jarcade"
+version = "0.1.0"
+edition = "2024"
+description = "A small, battery-conscious arcade built with Macroquad"
+license = "MIT"
+
+[dependencies]
+macroquad = { version = "=0.4.16", default-features = false }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc-rs = "=0.2.8"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+[[bin]]
+name = "jarcade"
+path = "src/main.rs"
+
+[package.metadata.android]
+package_name = "com.jarcade.arcade"
+label = "Jarcade"
+fullscreen = true
+target_sdk_version = 35
+min_sdk_version = 23
+build_targets = ["aarch64-linux-android"]
+
+[[package.metadata.android.permission]]
+name = "android.permission.VIBRATE"
+
+[package.metadata.android.activity_attributes]
+"android:exported" = "true"
+"android:screenOrientation" = "userPortrait"

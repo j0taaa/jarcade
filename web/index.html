@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="description" content="Your pocket arcade. Play Snake, Minesweeper, and Fih, your little fish pet.">
+    <title>Jarcade</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='14' height='14' rx='5' fill='%231b6d4b'/%3E%3Crect x='18' width='14' height='14' rx='5' fill='%231b6d4b'/%3E%3Crect y='18' width='14' height='14' rx='5' fill='%231b6d4b'/%3E%3Crect x='18' y='18' width='14' height='14' rx='5' fill='%231b6d4b'/%3E%3C/svg%3E">
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; color: #18221c; font-family: system-ui, sans-serif; }
+      body { height: 100dvh; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+      #glcanvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+      #loading { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; color: #1b6d4b; font-weight: 600; letter-spacing: -.03em; font-size: 24px; }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    </style>
+  </head>
+  <body>
+    <canvas id="glcanvas" tabindex="0" aria-label="Jarcade. Games." aria-describedby="controls"></canvas>
+    <p id="controls" class="sr-only">Tab and Enter navigate. Arrow keys or WASD steer Snake. Space pauses. On touch screens, swipe or tap the directional controls. Minesweeper: choose a board size and Start game. Tap to reveal, use Flag mode or right-click to flag. Drag or swipe to move around the board; use a mouse wheel or Shift+wheel to scroll. Pinch or use minus/plus to zoom; Fit or the 0 key shows the entire board. Arrows select tiles, Enter or Space reveals, F flags. Click a revealed number to clear its neighbors when its flags match. Fih fills the screen with separate rooms. Left/Right switches rooms; click a stat icon or room name to navigate. Kitchen: pantry and food shop, drag food into Fih’s mouth; taps and other drops never feed. Bathroom: drag soap and rub across both sides, then shower to rinse. Keyboard care: Enter picks up food or soap, arrows move it, Enter releases. Bedroom: turn the light off to sleep or on to wake. Shirt opens clothing, hats, colors and room previews; buying requires Buy and equip. Playroom has five mini-games. Pearl Catch: drag or use Left/Right to catch pearls and avoid urchins. Bubble Pop: pop pearl bubbles and avoid spiky ones. Keyboard arrows aim the cursor, Space pops at its position. Memory Reef: select matching cards. Reef Hop: tap the side with the next stone or use Left/Right before it sinks. Reef Dash: tap or Space to swim through gaps. Tab and Enter operate buttons and cards. Pause stops a mini-game. Escape closes an overlay or returns to the arcade.</p>
+    <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+    <div id="loading" role="status">jarcade</div>
+    <script src="vendor/mq_js_bundle.js?v=__BUILD__"></script>
+    <script src="platform.js?v=__BUILD__"></script>
+    <script>load("jarcade.wasm?v=__BUILD__");</script>
+  </body>
+</html>

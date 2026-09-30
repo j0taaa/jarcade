@@ -1,0 +1,23 @@
+name: Check
+on: [push, pull_request]
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, aarch64-linux-android, aarch64-apple-ios
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo clippy --locked --target aarch64-linux-android -- -D warnings
+      - run: cargo clippy --locked --target aarch64-apple-ios -- -D warnings
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/*.test.cjs
+      - run: cargo test --locked
+      - run: cargo build --locked --release
+      - run: bash scripts/build-web.sh

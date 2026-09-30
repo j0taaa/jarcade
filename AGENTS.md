@@ -1,0 +1,10 @@
+# Jarcade
+
+- Build a collection of simple games in Rust with Macroquad, sharing game and UI code across iOS, Android, PC, and web.
+- Put games on a minimal home screen, grouped by category (single player, multiplayer, etc.), with easy access to app settings.
+- Avoid needless redraws and background work; keep game timing independent of rendering. Power saver is OFF by default; enabling it uses a true black, essential-only UI and fewer updates.
+- Use a polished, minimal WHITE default theme, sharp high-DPI graphics, generous touch targets, and keyboard controls. Never trade away phone resolution by default. Normal gameplay follows the display refresh rate without an FPS cap; keep motion and turns smooth. The optional FPS counter must not force idle screens to redraw.
+- Game cards must show an actual gameplay preview; use two columns on phones and more on larger screens. Add subtle, optional haptics on supported devices and clearly handle unsupported browsers.
+- Minesweeper offers board sizes before play, large scrollable/zoomable tiles using most of the screen, and a fixed, clear Reveal/Flag selector. Drags and pinch gestures must never reveal or flag tiles.
+- Fih is a detailed, round, cute front-facing fish drawn and animated in Rust code in fullscreen hand-authored SVG rooms with clean, flat furniture: kitchen, bathroom, bedroom, playroom, and clinic. Use in-scene icons, room-specific care (drag food to the mouth with gaze/chewing; rub soap before rinsing), idle/action animations, compact icon stats, varied food with saved pantry stock, and clothing/hat previews before purchase. Preserve offline progress; mini-games live inside Fih, never on the arcade launch screen.
+- Keep game rules separate from rendering and test gameplay, edge cases, and regressions. Run formatting, linting, tests, and relevant builds before finishing changes; state platform verification limits honestly.
