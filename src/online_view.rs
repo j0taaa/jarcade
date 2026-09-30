@@ -189,6 +189,9 @@ impl OnlinePage {
             }
             if is_key_pressed(KeyCode::Enter) {
                 self.close_editor();
+                // Consume the text submission so the same Enter cannot re-open
+                // the field or activate the next game control in this frame.
+                clear_input_queue();
                 self.revision += 1;
             }
         }
@@ -1638,8 +1641,21 @@ fn clip(viewport: Option<Rect>) {
     }
 }
 fn fit(ui: &Ui, text: &str, r: Rect, size: f32, color: Color, bold: bool) {
-    let size = (size * r.w / ui.text_width(text, size, bold).max(1.)).min(size);
-    ui.centered(text, r, size.max(8.), color, bold);
+    if r.w < 4. {
+        return;
+    }
+    let size = (size * r.w / ui.text_width(text, size, bold).max(1.))
+        .min(size)
+        .max(8.);
+    if ui.text_width(text, size, bold) <= r.w {
+        ui.centered(text, r, size, color, bold);
+    } else {
+        let mut shortened = text.to_owned();
+        while !shortened.is_empty() && ui.text_width(&format!("{shortened}…"), size, bold) > r.w {
+            shortened.pop();
+        }
+        ui.centered(&format!("{shortened}…"), r, size, color, bold);
+    }
 }
 fn wrapped_lines(ui: &Ui, text: &str, width: f32, size: f32) -> Vec<String> {
     let mut lines = vec![];
@@ -1650,11 +1666,19 @@ fn wrapped_lines(ui: &Ui, text: &str, width: f32, size: f32) -> Vec<String> {
         } else {
             format!("{line} {word}")
         };
-        if ui.text_width(&test, size, false) > width && !line.is_empty() {
-            lines.push(line);
-            line = word.into();
-        } else {
+        if ui.text_width(&test, size, false) <= width {
             line = test;
+            continue;
+        }
+        if !line.is_empty() {
+            lines.push(std::mem::take(&mut line));
+        }
+        for c in word.chars() {
+            let test = format!("{line}{c}");
+            if !line.is_empty() && ui.text_width(&test, size, false) > width {
+                lines.push(std::mem::take(&mut line));
+            }
+            line.push(c);
         }
     }
     if !line.is_empty() {

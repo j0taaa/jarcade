@@ -258,6 +258,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih-keyboard.cjs
 # With the room service on port 8091:
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer-layouts.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 ```
 
 Use `JARCADE_QA_URL` for another server and `JARCADE_CHROME` for an installed
@@ -314,7 +315,7 @@ shuffled gallery, private votes, exact base scoring, discard recycling, and
 and submit two decoys. There are **84 original AI-generated illustrations**.
 Artwork and full prompts: [assets/reverie/README.md](assets/reverie/README.md).
 
-Tap a picture for a large preview; Select then confirm with the fixed bottom
+Tap a clue to read it in full. On short wide displays, scores and clue move beside the picture gallery. Tap a picture for a large preview; Select then confirm with the fixed bottom
 button. Browse by swipe, wheel, arrows or Page Up/Down. Drags and multi-touch
 never select cards. Court's table scrolls on small displays. Tab/Shift+Tab and
 Enter navigate controls. Web uses the phone/desktop text keyboard; Android provides an in-game touch keyboard because its Miniquad backend has no text IME. The ? button explains rules and original role names.
