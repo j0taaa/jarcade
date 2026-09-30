@@ -116,9 +116,11 @@ Tap the room title to open the room picker, use the arrows, or tap a stat icon:
 - **Bathroom**: drag the soap and rub across both sides of Fih to build lather,
   then use the shower to rinse. Holding still or tapping cannot wash Fih.
 - **Bedroom**: switch the light off to sleep, or on to wake. Sleeping restores
-  energy, including offline. Clothing is also accessible here.
-- **Playroom**: affection and five mini-games, exclusive to Fih.
-- **Clinic**: a health potion costs 8 coins.
+  energy, including offline. The wardrobe is accessible only here.
+- **Playroom**: throw a ball that bounces inside the room; Fih follows it and gets happy.
+  Eight mini-games are exclusive to Fih.
+- **Clinic**: a separate potion shop sells Health (8 coins), Energy (6), and Recovery
+  (16). Purchased potions stay in the cabinet; drag them into Fih’s mouth to use them.
 
 The fish is an original front-facing character rendered entirely from Rust
 curves and gradient meshes, including its fins, tail, eyes, belly and mouth.
@@ -130,7 +132,7 @@ vectors at the current display resolution, with no raster backgrounds or
 generated images. Artwork editing is documented in
 [assets/fih/README.md](assets/fih/README.md).
 
-The shirt icon opens the wardrobe: eight free body colors, 12 clothing choices,
+The bedroom shirt icon opens the wardrobe: eight free body colors, 12 clothing choices,
 12 hats (including the bare/no-hat defaults), and eight room color themes.
 Clothes follow the same curved body silhouette in every view and sit beneath
 the face. Every item has a visual preview; browsing never spends coins. Use **Buy & equip**
@@ -144,8 +146,9 @@ Mini-games:
 - **Bubble Pop**: 20 seconds; pop rising pearl bubbles before they expire,
   avoid spiky hazards, and build streaks. On keyboard, arrows aim the cursor
   and Space pops at that position. Space never automatically targets a bubble.
-- **Memory Reef**: find six matching pairs within 60 seconds. Mismatches turn
-  back over after a short delay; matched pairs stay revealed. Card flips animate.
+- **Memory Reef**: complete three rounds of six matching pairs within 60 seconds.
+  Each round gives less time to memorize the cards. Mismatches turn back over after
+  a short delay; matched pairs stay revealed. Card flips animate.
 - **Reef Hop**: 30 seconds; tap the side with the nearest stepping stone, or
   use Left/Right. Jumps follow a smooth arc. Wrong choices and waiting until
   a stone sinks cost a heart. The deadline gets shorter as your score grows.
@@ -153,7 +156,14 @@ Mini-games:
 - **Reef Dash**: tap or Space to swim up through gaps in kelp for up to 45
   seconds. Obstacles get faster and more frequent. Collisions cost hearts;
   each obstacle can charge only once, with a brief recovery period after hits.
+- **Shell Breaker**: drag or use Left/Right to move the paddle, bounce a pearl,
+  and clear shells. Each new wave moves faster and narrows the paddle.
+- **Pearl Slalom**: steer around falling urchins and collect pearls. Falling speed
+  and spawn frequency increase as levels advance.
+- **Tide Beats**: tap one of three lanes (or A/S/D) when a bubble crosses the
+  target line. Perfect hits and streaks score more; the rhythm speeds up.
 
+All mini-games increase their difficulty during play.
 Completed rounds award 5 coins plus 2 per point, happiness and XP, and save a
 best score. Rewards are paid once. Leaving an unfinished round pays nothing.
 For keyboard care, Tab to food or soap and Enter to pick it up; arrow presses
@@ -165,10 +175,16 @@ Food, joy, cleanliness, energy, and health change with elapsed real time.
 Neglected pets can recover through free basic food and washing. Affection has
 a 30-second cooldown. A level is earned every 100 XP. Progress is local to each
 browser/device and saved separately from app settings in `jarcade.fih.v1` or
-native `fih.txt`. The v2 data format migrates existing stats, coins, purchases,
-selections and scores; pantry inventory and new scores are added. Malformed
+native `fih.txt`. The v3 data format preserves existing v1/v2 stats, coins, purchases,
+selections, scores and pantry inventory, adding three scores and potion stock. Malformed
 saves and clock changes are handled safely. Native writes replace the file
 atomically; save failures are shown without blocking play.
+
+Holding a finger on the room makes Fih follow it with its eyes. Hunger, tiredness,
+illness and low happiness change its face; dirt appears on its body. Full fish
+refuse food with a head shake and “NAH”, preserving food stock. Soap bubbles
+follow actual rubbing positions. Coin and level indicators share a centered line.
+App settings are available from the arcade launch screen, never inside Fih.
 
 Visible rooms breathe, bob, flap fins and blink in normal mode. Care actions
 animate feeding, washing, affection, healing, clothing changes and sleep/wake.
@@ -227,7 +243,7 @@ flood fill, chording, deterministic placement, FPS measurement,
 frame-independent timing, input event ordering, fast swipes/taps, continuous
 Snake trails and head rotation, offline pet care, purchases, save validation,
 mouth-only feeding, canceled drags, soap rubbing and body coverage, vector
-asset validation, mini-game hazards/streaks/deadlines and single rewards, preference migration, haptic rate limiting, phone
+asset validation, mini-game hazards/streaks/deadlines and single rewards, playroom ball physics and throws, potion inventory, preference migration, haptic rate limiting, phone
 layout bounds, and high-DPI input mapping. Node's built-in test runner checks
 web haptic patterns, unsupported/blocked APIs, theme synchronization,
 accessibility status, unavailable browser storage, and animation-frame scheduling
@@ -240,6 +256,7 @@ npm install --prefix /tmp/jarcade-browser-qa playwright
 /tmp/jarcade-browser-qa/node_modules/.bin/playwright install chromium
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih-layouts.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih-keyboard.cjs
 ```
 
 Use `JARCADE_QA_URL` for another server and `JARCADE_CHROME` for an installed
@@ -248,7 +265,8 @@ in `/tmp`. They cover phone care gestures, purchases, high-DPI rendering, idle
 animation, all mini-games, compact layouts, and power-saver frame scheduling.
 GitHub Actions runs formatting, linting, unit tests and the web build.
 
-`src/fih.rs` and `src/fih_games.rs` contain pet and mini-game rules;
+`src/fih.rs`, `src/fih_games.rs`, and `src/fih_extras.rs` contain pet and mini-game rules;
+`src/fih_ball.rs` contains the playroom ball physics;
 `src/fih_view.rs` renders its rooms, wardrobe, games, and launch preview;
 `src/fih_character.rs` draws the animated character and `src/fih_art.rs` shares
 vector rooms, clothing and icons. Pure care gesture and pose rules live in

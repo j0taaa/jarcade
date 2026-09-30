@@ -139,6 +139,64 @@ pub const FOODS: [Food; 12] = [
         health: 3.,
     },
 ];
+#[derive(Clone, Copy, Debug)]
+pub struct Potion {
+    pub name: &'static str,
+    pub price: u32,
+    pub health: f32,
+    pub energy: f32,
+    pub food: f32,
+}
+pub const POTIONS: [Potion; 3] = [
+    Potion {
+        name: "Health",
+        price: 8,
+        health: 30.,
+        energy: 0.,
+        food: 0.,
+    },
+    Potion {
+        name: "Energy",
+        price: 6,
+        health: 0.,
+        energy: 35.,
+        food: 0.,
+    },
+    Potion {
+        name: "Recovery",
+        price: 16,
+        health: 45.,
+        energy: 25.,
+        food: 15.,
+    },
+];
+/// Each room exposes only the actions that belong there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoomTool {
+    Pantry,
+    Food,
+    FoodShop,
+    Soap,
+    Rinse,
+    Lights,
+    Wardrobe,
+    Games,
+    Ball,
+    Medicine,
+    PotionShop,
+}
+impl Room {
+    pub fn tools(self) -> &'static [RoomTool] {
+        use RoomTool::*;
+        match self {
+            Self::Kitchen => &[Pantry, Food, FoodShop],
+            Self::Bathroom => &[Soap, Rinse],
+            Self::Bedroom => &[Lights, Wardrobe],
+            Self::Playroom => &[Games, Ball],
+            Self::Clinic => &[Medicine, PotionShop],
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Care {
     Feed,
@@ -204,8 +262,9 @@ pub struct Fih {
     pub hat: u8,
     pub background: u8,
     owned: [u16; 4],
-    pub best: [u32; 5],
+    pub best: [u32; 8],
     pub pantry: [u16; 12],
+    pub potions: [u16; 3],
     pub updated: f64,
     last_pet: f64,
 }
@@ -225,8 +284,9 @@ impl Fih {
             hat: 0,
             background: 0,
             owned: [255, 1, 1, 1],
-            best: [0; 5],
+            best: [0; 8],
             pantry: [0, 3, 2, 3, 2, 2, 2, 2, 1, 2, 1, 2],
+            potions: [1, 0, 0],
             updated: now.max(0.),
             last_pet: 0.,
         }
@@ -396,9 +456,47 @@ impl Fih {
         self.xp = (self.xp + 3).min(1_000_000);
         Outcome::Changed
     }
+    pub fn buy_potion(&mut self, index: usize) -> Outcome {
+        let Some(potion) = POTIONS.get(index) else {
+            return Outcome::Invalid;
+        };
+        if self.potions[index] >= 99 {
+            return Outcome::Full;
+        }
+        if self.coins < potion.price {
+            return Outcome::Poor;
+        }
+        self.coins -= potion.price;
+        self.potions[index] += 1;
+        Outcome::Changed
+    }
+    pub fn drink_potion(&mut self, index: usize, now: f64) -> Outcome {
+        self.advance(now);
+        let Some(potion) = POTIONS.get(index) else {
+            return Outcome::Invalid;
+        };
+        if self.sleeping {
+            return Outcome::Sleeping;
+        }
+        if (potion.health == 0. || self.health >= 99.)
+            && (potion.energy == 0. || self.energy >= 99.)
+            && (potion.food == 0. || self.food >= 99.)
+        {
+            return Outcome::Full;
+        }
+        if self.potions[index] == 0 {
+            return Outcome::Invalid;
+        }
+        self.potions[index] -= 1;
+        self.health = (self.health + potion.health).min(100.);
+        self.energy = (self.energy + potion.energy).min(100.);
+        self.food = (self.food + potion.food).min(100.);
+        self.xp = (self.xp + 3).min(1_000_000);
+        Outcome::Changed
+    }
     pub fn encode(&self) -> String {
         let mut value = format!(
-            "2 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+            "3 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
             self.food,
             self.joy,
             self.clean,
@@ -420,10 +518,16 @@ impl Fih {
             self.updated,
             self.last_pet
         );
-        for score in &self.best[2..] {
+        for score in &self.best[2..5] {
             value.push_str(&format!(" {score}"));
         }
         for stock in self.pantry {
+            value.push_str(&format!(" {stock}"));
+        }
+        for score in &self.best[5..] {
+            value.push_str(&format!(" {score}"));
+        }
+        for stock in self.potions {
             value.push_str(&format!(" {stock}"));
         }
         value
@@ -431,7 +535,10 @@ impl Fih {
     pub fn decode(value: &str, now: f64) -> Self {
         fn parse(value: &str) -> Option<Fih> {
             let f: Vec<_> = value.split_whitespace().collect();
-            if !((f.len() == 21 && f[0] == "1") || (f.len() == 36 && f[0] == "2")) {
+            if !((f.len() == 21 && f[0] == "1")
+                || (f.len() == 36 && f[0] == "2")
+                || (f.len() == 42 && f[0] == "3"))
+            {
                 return None;
             }
             let mut pet = Fih::new(0.);
@@ -456,7 +563,7 @@ impl Fih {
             }
             pet.best[0] = f[17].parse().ok()?;
             pet.best[1] = f[18].parse().ok()?;
-            if f[0] == "2" {
+            if matches!(f[0], "2" | "3") {
                 for i in 2..5 {
                     pet.best[i] = f[19 + i].parse().ok()?;
                 }
@@ -464,6 +571,17 @@ impl Fih {
                     pet.pantry[i] = f[24 + i].parse().ok()?;
                 }
                 if pet.pantry.iter().any(|&n| n > 99) {
+                    return None;
+                }
+            }
+            if f[0] == "3" {
+                for i in 5..8 {
+                    pet.best[i] = f[31 + i].parse().ok()?;
+                }
+                for i in 0..3 {
+                    pet.potions[i] = f[39 + i].parse().ok()?;
+                }
+                if pet.potions.iter().any(|&n| n > 99) {
                     return None;
                 }
             }
@@ -630,13 +748,81 @@ mod tests {
         let old = "1 70 60 50 40 90 123 200 0 2 1 3 0 255 3 9 1 12 8 100 90";
         let f = Fih::decode(old, 100.);
         assert_eq!(f.coins, 123);
-        assert_eq!(f.best, [12, 8, 0, 0, 0]);
+        assert_eq!(f.best, [12, 8, 0, 0, 0, 0, 0, 0]);
         assert!(f.owns(Style::Hat, 3));
         assert_eq!(f.clothes, 1);
         assert!(f.pantry[4] > 0);
         assert_eq!(Fih::decode(&f.encode(), 100.), f);
         for r in Room::ALL {
             assert_eq!(r.neighbor(1).neighbor(-1), r);
+        }
+    }
+    #[test]
+    fn potion_stock_is_saved_and_failed_drinks_preserve_inventory() {
+        let mut f = Fih::new(100.);
+        assert_eq!(f.buy_potion(2), Outcome::Changed);
+        assert_eq!(f.potions, [1, 0, 1]);
+        assert_eq!(f.coins, 64);
+        f.health = 100.;
+        let before = f.clone();
+        assert_eq!(f.drink_potion(0, 100.), Outcome::Full);
+        assert_eq!(f, before);
+        f.health = 40.;
+        f.sleeping = true;
+        assert_eq!(f.drink_potion(0, 100.), Outcome::Sleeping);
+        assert_eq!(f.potions[0], 1);
+        f.sleeping = false;
+        assert_eq!(f.drink_potion(0, 100.), Outcome::Changed);
+        assert_eq!(f.health, 70.);
+        assert_eq!(f.potions[0], 0);
+        assert_eq!(f.drink_potion(0, 100.), Outcome::Invalid);
+        f.coins = 0;
+        assert_eq!(f.buy_potion(1), Outcome::Poor);
+        assert_eq!(f.potions[1], 0);
+        f.coins = 100;
+        f.potions[1] = 99;
+        assert_eq!(f.buy_potion(1), Outcome::Full);
+        assert_eq!(f.coins, 100);
+        assert_eq!(f.buy_potion(3), Outcome::Invalid);
+        f.best[7] = 42;
+        assert_eq!(Fih::decode(&f.encode(), 100.), f);
+    }
+    #[test]
+    fn v2_migration_preserves_the_entire_existing_inventory() {
+        let mut f = Fih::new(100.);
+        f.buy_food(4);
+        f.customize(Style::Hat, 1);
+        f.best[4] = 17;
+        let mut fields: Vec<String> = f
+            .encode()
+            .split_whitespace()
+            .take(36)
+            .map(str::to_owned)
+            .collect();
+        fields[0] = "2".into();
+        assert_eq!(Fih::decode(&fields.join(" "), 100.), f);
+        fields[0] = "3".into();
+        assert_eq!(Fih::decode(&fields.join(" "), 100.), Fih::new(100.));
+    }
+    #[test]
+    fn room_tools_are_specific_and_wardrobe_is_only_in_the_bedroom() {
+        for room in Room::ALL {
+            assert_eq!(
+                room.tools().contains(&RoomTool::Wardrobe),
+                room == Room::Bedroom
+            );
+            assert_eq!(
+                room.tools().contains(&RoomTool::PotionShop),
+                room == Room::Clinic
+            );
+            assert_eq!(
+                room.tools().contains(&RoomTool::Ball),
+                room == Room::Playroom
+            );
+            assert_eq!(
+                room.tools().contains(&RoomTool::Pantry),
+                room == Room::Kitchen
+            );
         }
     }
     #[test]

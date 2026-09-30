@@ -6,7 +6,8 @@ use crate::{
 };
 use jarcade::{
     feedback::Pulse,
-    fih::{Care, FOODS, Fih, Outcome, Room, Style},
+    fih::{Care, FOODS, Fih, Outcome, POTIONS, Room, Style},
+    fih_ball::Ball,
     fih_games::{Kind, Round},
     fih_interaction::{Action as PetAction, Animation, Lather, Pose, can_feed, mouth_hit},
     layout::{FihLayout, touch_point},
@@ -17,7 +18,6 @@ use macroquad::prelude::*;
 pub enum Nav {
     None,
     Arcade,
-    Settings,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Overlay {
@@ -27,15 +27,19 @@ enum Overlay {
     Shop,
     Wardrobe,
     Games,
+    Medicine,
+    PotionShop,
 }
 #[derive(Clone, Copy)]
 enum DragTool {
     Food(usize),
     Soap,
+    Potion(usize),
 }
 struct Drag {
     tool: DragTool,
     keyboard: bool,
+    started: f64,
     start: Vec2,
     point: Vec2,
 }
@@ -52,6 +56,12 @@ pub struct FihPage {
     style_page: u8,
     category: usize,
     selected_food: usize,
+    selected_potion: usize,
+    food_page: usize,
+    game_page: usize,
+    finger: Option<Vec2>,
+    ball: Ball,
+    ball_frame: Option<f64>,
     drag: Option<Drag>,
     soap: f32,
     lather: Lather,
@@ -86,6 +96,12 @@ impl FihPage {
             style_page: 0,
             category: 0,
             selected_food: 0,
+            selected_potion: 0,
+            food_page: 0,
+            game_page: 0,
+            finger: None,
+            ball: Ball::default(),
+            ball_frame: None,
             drag: None,
             soap: 0.,
             lather: Lather::default(),
@@ -127,9 +143,17 @@ impl FihPage {
         self.reaction = 0.;
         self.animation = None;
         self.lather.end_stroke();
+        self.ball.cancel();
+        self.ball_frame = None;
+        self.finger = None;
     }
     pub fn back(&mut self) -> bool {
-        if self.round.take().is_some() {
+        if self.drag.take().is_some() || self.ball.held {
+            self.ball.cancel();
+            self.lather.end_stroke();
+            self.revision += 1;
+            false
+        } else if self.round.take().is_some() {
             self.overlay = Overlay::Games;
             self.revision += 1;
             false
@@ -149,6 +173,10 @@ impl FihPage {
             .as_ref()
             .is_some_and(|r| !r.finished && !r.paused)
             || self.drag.is_some()
+            || (self.overlay == Overlay::None
+                && self.round.is_none()
+                && ((!saver && self.finger.is_some())
+                    || (self.room == Room::Playroom && !self.pet.sleeping && self.ball.moving())))
             || (self.round.is_none() && self.overlay == Overlay::Wardrobe && now < self.reaction)
             || (self.round.is_none()
                 && self.overlay == Overlay::None
@@ -174,29 +202,25 @@ impl FihPage {
             None
         }
     }
-    fn notice(&mut self, text: &str, now: f64) {
-        self.message = text.into();
-        self.toast_until = now + 2.5;
-        self.revision += 1;
-    }
     fn respond(&mut self, result: Outcome, text: &str, now: f64) -> Option<Pulse> {
-        self.notice(
-            match result {
-                Outcome::Changed => text,
-                Outcome::Full => {
-                    if text == "Yum!" {
-                        "Fih is full"
-                    } else {
-                        "Already feeling great"
-                    }
-                }
-                Outcome::Sleeping => "Wake Fih in the bedroom",
-                Outcome::Poor => "Earn more coins in the playroom",
-                Outcome::Cooldown => "Fih feels loved",
-                Outcome::Invalid => "Pick something from the pantry",
-            },
-            now,
-        );
+        self.message = match result {
+            Outcome::Changed => text,
+            Outcome::Full => "NAH",
+            Outcome::Sleeping => "Sleeping",
+            Outcome::Poor => "Not enough coins",
+            Outcome::Cooldown => "Loved",
+            Outcome::Invalid => "Out of stock",
+        }
+        .into();
+        self.toast_until = 0.;
+        if result == Outcome::Full && text == "Yum!" {
+            self.animation = Some(Animation {
+                action: PetAction::Refuse,
+                started: now,
+            });
+            self.reaction = now + 1.6;
+            self.revision += 1;
+        }
         if result == Outcome::Changed {
             let action = match text {
                 "Yum!" => PetAction::Feed,
@@ -220,6 +244,8 @@ impl FihPage {
         }
     }
     fn move_room(&mut self, room: Room, ui: &mut Ui) {
+        self.ball.cancel();
+        self.ball_frame = None;
         self.room = room;
         self.overlay = Overlay::None;
         self.drag = None;
@@ -244,27 +270,31 @@ impl FihPage {
     }
     fn hud(&mut self, ui: &mut Ui, l: &FihLayout, enabled: bool) {
         let left = Rect::new(12., 12., 44., 44.);
-        let right = Rect::new(screen_width() - 56., 12., 44., 44.);
         if enabled {
             if icon_button(ui, Glyph::Back, left, false) {
                 self.nav = Nav::Arcade;
             }
-            if icon_button(ui, Glyph::Settings, right, false) {
-                self.nav = Nav::Settings;
-            }
         } else {
             glass(ui, left, 16.);
             glyph(Glyph::Back, left.center(), 14.);
-            glass(ui, right, 16.);
-            glyph(Glyph::Settings, right.center(), 14.);
         }
-        let bank = Rect::new(screen_width() / 2. - 67., 49., 134., 14.);
-        draw_circle(bank.x + 9., bank.center().y, 6., GOLD);
-        ui.label(
-            &format!("{}  ·  Lv {}", self.pet.coins, self.pet.level()),
-            bank.x + 20.,
-            bank.y + 13.,
-            10.,
+        let coins = self.pet.coins.to_string();
+        let level = format!("Lv {}", self.pet.level());
+        let total = 16. + ui.text_width(&coins, 11., true) + 18. + ui.text_width(&level, 11., true);
+        let x = (screen_width() - total) / 2.;
+        draw_circle(x + 6., 57., 6., GOLD);
+        ui.heading(
+            &coins,
+            x + 16.,
+            61.,
+            11.,
+            if ui.theme.saver { WHITE } else { INK },
+        );
+        ui.heading(
+            &level,
+            x + 16. + ui.text_width(&coins, 11., true) + 18.,
+            61.,
+            11.,
             if ui.theme.saver { WHITE } else { INK },
         );
         let stats = [
@@ -276,12 +306,7 @@ impl FihPage {
         ];
         let cell = l.stats.w / 5.;
         for (i, (value, kind, color, room)) in stats.into_iter().enumerate() {
-            let box_rect = Rect::new(
-                l.stats.x + i as f32 * cell + 3.,
-                l.stats.y,
-                cell - 6.,
-                l.stats.h,
-            );
+            let box_rect = Rect::new(l.stats.x + i as f32 * cell, l.stats.y, cell, l.stats.h);
             let c = box_rect.center();
             draw_circle(
                 c.x,
@@ -328,6 +353,15 @@ impl FihPage {
             self.pet.sleeping && self.room == Room::Bedroom,
         );
         let (center, radius) = Self::pet_position(&l);
+        self.finger = active_pointer().filter(|p| {
+            self.overlay == Overlay::None && p.y > l.room_nav.bottom() && !l.tools.contains(*p)
+        });
+        self.ball.resize(l.pet.h / l.pet.w);
+        let ball_dt = self.ball_frame.replace(now).map_or(0., |last| now - last);
+        if self.room == Room::Playroom && self.overlay == Overlay::None && !self.pet.sleeping {
+            self.ball.advance(ball_dt);
+        }
+
         if !ui.theme.saver {
             ellipse(
                 center + vec2(0., radius * 1.62),
@@ -340,12 +374,30 @@ impl FihPage {
         } else {
             Pose::idle(now)
         };
+        pose.needs(&self.pet);
+        if let Some(p) = self.finger {
+            let q = (p - center) / radius;
+            pose.gaze((q.x, q.y));
+        }
+        if self.room == Room::Playroom {
+            let p = l.pet.point() + vec2(self.ball.x, self.ball.y) * l.pet.w;
+            let q = (p - center) / radius;
+            pose.gaze((q.x, q.y));
+            if self.ball.moving() && !self.pet.sleeping {
+                pose.delight = 0.5;
+                pose.sad = 0.;
+            }
+        }
         if let Some(animation) = self.animation {
             animation.apply(&mut pose, now);
         }
         if let Some(drag) = &self.drag {
             match drag.tool {
                 DragTool::Food(_) => {
+                    let q = (drag.point - center) / radius;
+                    pose.watch((q.x, q.y));
+                }
+                DragTool::Potion(_) => {
                     let q = (drag.point - center) / radius;
                     pose.watch((q.x, q.y));
                 }
@@ -400,20 +452,37 @@ impl FihPage {
                 }
             }
         }
-        if self.room == Room::Bathroom && self.soap > 0. {
-            for i in 0..12 {
-                let a = i as f32 * 2.4;
-                let p = center
-                    + vec2(
-                        a.cos() * radius * 0.66,
-                        a.sin() * radius * 0.40 + radius * 0.3,
-                    );
+        if self
+            .animation
+            .is_some_and(|a| a.action == PetAction::Refuse && a.active(now))
+        {
+            let speech = Rect::new(
+                (center.x + radius * 0.55).min(screen_width() - 86.),
+                (center.y - radius * 0.85).max(115.),
+                72.,
+                36.,
+            );
+            glass(ui, speech, 16.);
+            ui.centered(
+                "NAH",
+                speech,
+                15.,
+                if ui.theme.saver { WHITE } else { INK },
+                true,
+            );
+        }
+        if self.room == Room::Bathroom {
+            for (i, &(x, y)) in self.lather.spots.iter().enumerate() {
                 bubble(
-                    p,
-                    radius * (0.09 + (i % 3) as f32 * 0.04) * self.soap,
+                    center + vec2(x, y) * radius,
+                    radius * (0.045 + (i % 3) as f32 * 0.012),
                     if ui.theme.saver { BLUE } else { WHITE },
                 );
             }
+        }
+        if self.room == Room::Playroom {
+            let p = l.pet.point() + vec2(self.ball.x, self.ball.y) * l.pet.w;
+            ball_icon(p, self.ball.radius * l.pet.w, (now as f32) * self.ball.vx);
         }
         if self.room == Room::Bathroom && now < self.shower_until {
             for i in 0..12 {
@@ -440,20 +509,31 @@ impl FihPage {
             );
         }
         let enabled = self.overlay == Overlay::None;
+        let keyboard_care = self.drag.as_ref().is_some_and(|drag| drag.keyboard);
+        let focus = ui.keyboard_focus;
+        if keyboard_care {
+            ui.keyboard_focus = false;
+        }
         self.hud(ui, &l, enabled);
-        if enabled {
+        let result = if enabled {
             self.room_controls(ui, &l, press, now, center, radius)
         } else {
             let result = match self.overlay {
                 Overlay::Rooms => self.rooms_menu(ui),
-                Overlay::Pantry | Overlay::Shop => self.pantry(ui, now),
+                Overlay::Pantry => self.pantry(ui, press, now),
+                Overlay::Shop => self.food_shop(ui, now),
+                Overlay::Medicine | Overlay::PotionShop => self.medicine(ui, press, now),
                 Overlay::Wardrobe => self.wardrobe(ui, now),
                 Overlay::Games => self.games_menu(ui, now),
                 Overlay::None => None,
             };
             self.draw_toast(ui, &l, now);
             result
+        };
+        if keyboard_care {
+            ui.keyboard_focus = focus;
         }
+        result
     }
     fn room_controls(
         &mut self,
@@ -467,7 +547,10 @@ impl FihPage {
         let mut pulse = None;
         let nav = l.room_nav;
         if icon_button(ui, Glyph::Back, Rect::new(nav.x, nav.y, 44., 44.), false)
-            || (self.drag.is_none() && !ui.keyboard_focus && is_key_pressed(KeyCode::Left))
+            || (self.drag.is_none()
+                && !self.ball.held
+                && !ui.keyboard_focus
+                && is_key_pressed(KeyCode::Left))
         {
             self.move_room(self.room.neighbor(-1), ui);
         }
@@ -476,7 +559,10 @@ impl FihPage {
             Glyph::Next,
             Rect::new(nav.right() - 44., nav.y, 44., 44.),
             false,
-        ) || (self.drag.is_none() && !ui.keyboard_focus && is_key_pressed(KeyCode::Right))
+        ) || (self.drag.is_none()
+            && !self.ball.held
+            && !ui.keyboard_focus
+            && is_key_pressed(KeyCode::Right))
         {
             self.move_room(self.room.neighbor(1), ui);
         }
@@ -485,7 +571,7 @@ impl FihPage {
         ui.centered(
             self.room.title(),
             title,
-            if title.w < 100. { 12. } else { 16. },
+            15.,
             if ui.theme.saver { WHITE } else { INK },
             true,
         );
@@ -493,133 +579,76 @@ impl FihPage {
             self.open(Overlay::Rooms, ui);
             return Some(Pulse::Tap);
         }
-        let landscape = screen_width() > screen_height() * 1.3 && screen_height() < 520.;
-        let wardrobe = Rect::new(
-            if landscape { 12. } else { screen_width() - 60. },
-            nav.bottom() + 14.,
-            44.,
-            44.,
-        );
-        if icon_button(ui, Glyph::Shirt, wardrobe, false) {
-            self.open(Overlay::Wardrobe, ui);
-            return Some(Pulse::Tap);
-        }
+        let landscape = screen_height() < 520. && screen_width() > screen_height() * 1.3;
         let tools = l.tools;
-        glass(ui, tools, 28.);
-        let cell = tools.w / 3.;
-        let action_rect = |slot: usize| {
+        glass(ui, tools, 24.);
+        let count = self.room.tools().len();
+        let cell = tools.w / count as f32;
+        let action_rect = |i: usize| {
             if landscape {
                 Rect::new(
-                    tools.x + 8.,
-                    tools.y + 8. + slot as f32 * (tools.h - 12.) / 3.,
-                    44.,
-                    44.,
+                    tools.x + 12.,
+                    tools.y + 10. + i as f32 * (tools.h - 18.) / count as f32,
+                    48.,
+                    48.,
                 )
             } else {
                 Rect::new(
-                    tools.x + cell * (slot as f32 + 0.5) - 27.,
-                    tools.y + 8.,
-                    54.,
-                    54.,
+                    tools.x + cell * (i as f32 + 0.5) - 26.,
+                    tools.y + 7.,
+                    52.,
+                    52.,
                 )
             }
         };
         let a = action_rect(0);
         let b = action_rect(1);
-        let c = action_rect(2);
-        let labels: [&str; 3];
+        let mut labels: Vec<&str> = Vec::new();
         match self.room {
             Room::Kitchen => {
-                labels = ["Pantry", FOODS[self.selected_food].name, "Shop"];
+                labels.extend(["Pantry", FOODS[self.selected_food].name, "Shop"]);
                 if icon_button(ui, Glyph::Fridge, a, false) {
                     self.open(Overlay::Pantry, ui);
                 }
-                glass(ui, b, 18.);
+                glass(ui, b, 17.);
                 food_icon(self.selected_food, b.center(), 21.);
-                if self.drag.is_none() && ui.hit(b) {
+                let food_pressed = ui.hit(b);
+                if self.drag.is_none() && food_pressed {
                     if self.selected_food != 0 && self.pet.pantry[self.selected_food] == 0 {
-                        self.notice("Buy this food in the shop", now);
+                        self.open(Overlay::Shop, ui);
                     } else if self.pet.sleeping {
                         pulse = self.respond(Outcome::Sleeping, "", now);
                     } else {
-                        let point = press.unwrap_or(b.center());
-                        self.drag = Some(Drag {
-                            tool: DragTool::Food(self.selected_food),
-                            keyboard: press.is_none(),
-                            start: point,
-                            point,
-                        });
-                        self.notice("Drag to Fih's mouth", now);
-                        self.revision += 1;
+                        self.start_drag(DragTool::Food(self.selected_food), press, b.center());
                     }
                 }
-                if icon_button(ui, Glyph::Shop, c, false) {
+                if icon_button(ui, Glyph::Shop, action_rect(2), false) {
                     self.open(Overlay::Shop, ui);
-                }
-                if !landscape {
-                    // Keep food browsing in the kitchen without opening the inventory.
-                    if ui.hit(Rect::new(b.x - 34., b.y, 30., 54.)) {
-                        self.selected_food = (self.selected_food + 11) % 12;
-                        self.revision += 1;
-                    }
-                    if ui.hit(Rect::new(b.right() + 4., b.y, 30., 54.)) {
-                        self.selected_food = (self.selected_food + 1) % 12;
-                        self.revision += 1;
-                    }
-                    glyph(Glyph::Back, vec2(b.x - 17., b.center().y), 9.);
-                    glyph(Glyph::Next, vec2(b.right() + 19., b.center().y), 9.);
                 }
             }
             Room::Bathroom => {
-                labels = ["Soap", "Shower", "Love"];
-                if self.drag.is_none() && icon_button(ui, Glyph::Soap, a, self.soap > 0.) {
-                    if self.pet.sleeping {
-                        pulse = self.respond(Outcome::Sleeping, "", now);
-                    } else {
-                        let point = press.unwrap_or(center);
-                        self.drag = Some(Drag {
-                            tool: DragTool::Soap,
-                            keyboard: press.is_none(),
-                            start: point,
-                            point,
+                labels.extend(["Soap", "Rinse"]);
+                let soap_pressed = icon_button(ui, Glyph::Soap, a, self.soap > 0.);
+                if self.drag.is_none() && soap_pressed && !self.pet.sleeping {
+                    self.start_drag(DragTool::Soap, press, center);
+                }
+                if icon_button(ui, Glyph::Shower, b, self.lather.ready()) && self.lather.ready() {
+                    let result = self.pet.care(Care::Wash, miniquad::date::now());
+                    if matches!(result, Outcome::Changed | Outcome::Full) {
+                        self.soap = 0.;
+                        self.lather.clear();
+                        self.shower_until = now + 1.6;
+                        self.reaction = now + 1.6;
+                        self.animation = Some(Animation {
+                            action: PetAction::Wash,
+                            started: now,
                         });
-                        self.notice("Rub soap across Fih", now);
-                        self.revision += 1;
                     }
-                }
-                if icon_button(ui, Glyph::Shower, b, self.lather.ready()) {
-                    if self.lather.ready() {
-                        let result = self.pet.care(Care::Wash, miniquad::date::now());
-                        if matches!(result, Outcome::Changed | Outcome::Full) {
-                            self.soap = 0.;
-                            self.lather.clear();
-                            self.shower_until = now + 1.6;
-                            self.reaction = now + 1.6;
-                            self.animation = Some(Animation {
-                                action: PetAction::Wash,
-                                started: now,
-                            });
-                        }
-                        pulse = self.respond(result, "Squeaky clean!", now);
-                    } else {
-                        self.notice("Rub soap over both sides first", now);
-                    }
-                }
-                if icon_button(ui, Glyph::Heart, c, false) {
-                    let result = self.pet.care(Care::Pet, miniquad::date::now());
-                    pulse = self.respond(result, "Fih loves you", now);
+                    pulse = self.respond(result, "Squeaky clean!", now);
                 }
             }
             Room::Bedroom => {
-                labels = [
-                    if self.pet.sleeping {
-                        "Lights on"
-                    } else {
-                        "Lights off"
-                    },
-                    "Wardrobe",
-                    "Love",
-                ];
+                labels.extend([if self.pet.sleeping { "Wake" } else { "Sleep" }, "Wardrobe"]);
                 if icon_button(
                     ui,
                     if self.pet.sleeping {
@@ -644,164 +673,161 @@ impl FihPage {
                 if icon_button(ui, Glyph::Shirt, b, false) {
                     self.open(Overlay::Wardrobe, ui);
                 }
-                if icon_button(ui, Glyph::Heart, c, false) {
-                    let result = self.pet.care(Care::Pet, miniquad::date::now());
-                    pulse = self.respond(result, "Fih loves you", now);
-                }
             }
             Room::Playroom => {
-                labels = ["Mini-games", "Play", "Wardrobe"];
-                if icon_button(ui, Glyph::Play, a, false) {
-                    if self.pet.sleeping {
-                        pulse = self.respond(Outcome::Sleeping, "", now);
-                    } else {
-                        self.open(Overlay::Games, ui);
+                labels.extend(["Mini-games", "Ball"]);
+                if icon_button(ui, Glyph::Play, a, false) && !self.pet.sleeping {
+                    self.open(Overlay::Games, ui);
+                }
+                glass(ui, b, 17.);
+                ball_icon(b.center(), 17., 0.);
+                if ui.hit(b) && !self.pet.sleeping {
+                    self.ball = Ball::default();
+                    self.ball.resize(l.pet.h / l.pet.w);
+                    self.revision += 1;
+                }
+                if let Some(p) = press.filter(|p| l.pet.contains(*p)) {
+                    let q = (p - l.pet.point()) / l.pet.w;
+                    if self.ball.hit(q.x, q.y) && !self.pet.sleeping {
+                        self.ball.grab(now);
                     }
                 }
-                if icon_button(ui, Glyph::Heart, b, false) {
-                    let result = self.pet.care(Care::Pet, miniquad::date::now());
-                    pulse = self.respond(result, "Let's play!", now);
-                }
-                if icon_button(ui, Glyph::Shirt, c, false) {
-                    self.open(Overlay::Wardrobe, ui);
+                if self.ball.held {
+                    if touches().iter().any(|t| t.phase == TouchPhase::Cancelled)
+                        || touches().len() > 1
+                    {
+                        self.ball.cancel();
+                    } else if let Some(p) = active_pointer() {
+                        let q = (p - l.pet.point()) / l.pet.w;
+                        self.ball.drag(q.x, q.y, now);
+                    } else if self.ball.release(now) {
+                        let result = self.pet.care(Care::Pet, miniquad::date::now());
+                        pulse = self.respond(result, "Let's play!", now);
+                    }
                 }
             }
             Room::Clinic => {
-                labels = ["Potion · 8", "Love", "Wardrobe"];
+                labels.extend(["Cabinet", "Potion shop"]);
                 if icon_button(ui, Glyph::Potion, a, false) {
-                    let result = self.pet.care(Care::Heal, miniquad::date::now());
-                    pulse = self.respond(result, "Feeling better", now);
+                    self.open(Overlay::Medicine, ui);
                 }
-                if icon_button(ui, Glyph::Heart, b, false) {
-                    let result = self.pet.care(Care::Pet, miniquad::date::now());
-                    pulse = self.respond(result, "Fih loves you", now);
-                }
-                if icon_button(ui, Glyph::Shirt, c, false) {
-                    self.open(Overlay::Wardrobe, ui);
+                if icon_button(ui, Glyph::Shop, b, false) {
+                    self.open(Overlay::PotionShop, ui);
                 }
             }
         }
         for (i, text) in labels.into_iter().enumerate() {
-            let label_rect = if landscape {
-                let a = action_rect(i);
+            let item = action_rect(i);
+            let label = if landscape {
                 Rect::new(
-                    a.right() + 6.,
-                    a.y + 9.,
-                    tools.right() - a.right() - 10.,
-                    28.,
+                    item.right() + 5.,
+                    item.y + 8.,
+                    tools.right() - item.right() - 10.,
+                    30.,
                 )
             } else {
-                Rect::new(tools.x + cell * i as f32, tools.y + 65., cell, 19.)
+                Rect::new(tools.x + i as f32 * cell, tools.y + 64., cell, 18.)
             };
             ui.centered(
                 text,
-                label_rect,
+                label,
                 11.,
                 if ui.theme.saver { ui.theme.muted } else { INK },
                 false,
             );
         }
-        if self.room == Room::Kitchen && !landscape {
-            let n = if self.selected_food == 0 {
-                "Unlimited".into()
-            } else {
-                format!("{} left", self.pet.pantry[self.selected_food])
-            };
-            ui.centered(
-                &n,
-                Rect::new(b.x - 25., b.bottom() + 28., 104., 14.),
-                9.,
-                if ui.theme.saver { ui.theme.muted } else { INK },
-                false,
-            );
-        }
         if self.overlay == Overlay::None {
-            if let Some(mut drag) = self.drag.take() {
-                let ts = touches();
-                let cancelled = ts.iter().any(|t| t.phase == TouchPhase::Cancelled) || ts.len() > 1;
-                let down = ts.iter().any(|t| {
-                    matches!(
-                        t.phase,
-                        TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary
-                    )
-                }) || is_mouse_button_down(MouseButton::Left);
-                let mut released = !down;
-                if drag.keyboard {
-                    let step = r * 0.13;
-                    for (key, delta) in [
-                        (KeyCode::Left, vec2(-step, 0.)),
-                        (KeyCode::Right, vec2(step, 0.)),
-                        (KeyCode::Up, vec2(0., -step)),
-                        (KeyCode::Down, vec2(0., step)),
-                    ] {
-                        if is_key_pressed(key) {
-                            drag.point += delta;
-                        }
-                    }
-                    released = is_key_pressed(KeyCode::Enter) && now > self.toast_until - 2.4;
-                } else if let Some(t) = ts.iter().find(|t| t.phase != TouchPhase::Cancelled) {
-                    drag.point = touch_point(t.position, screen_dpi_scale());
-                } else {
-                    let (x, y) = mouse_position();
-                    drag.point = vec2(x, y);
-                }
-                if cancelled {
-                    self.lather.end_stroke();
-                } else {
-                    let q = (drag.point - center) / r;
-                    match drag.tool {
-                        DragTool::Food(food) => {
-                            let aimed = mouth_hit((q.x, q.y));
-                            if aimed {
-                                draw_ellipse_lines(
-                                    center.x,
-                                    center.y + r * 0.28,
-                                    r * 0.3,
-                                    r * 0.23,
-                                    0.,
-                                    2.,
-                                    MINT,
-                                );
-                            }
-                            if released {
-                                let start = (drag.start - center) / r;
-                                if can_feed((start.x, start.y), (q.x, q.y), false) {
-                                    self.eaten_food = food;
-                                    let result = self.pet.eat(food, miniquad::date::now());
-                                    pulse = self.respond(result, "Yum!", now);
-                                }
-                            } else {
-                                food_icon(food, drag.point, 26.);
-                                self.drag = Some(drag);
-                            }
-                        }
-                        DragTool::Soap => {
-                            if released {
-                                self.lather.end_stroke();
-                            } else {
-                                let was_ready = self.lather.ready();
-                                self.lather.rub((q.x, q.y));
-                                self.soap = self.lather.amount;
-                                if !was_ready && self.lather.ready() {
-                                    self.notice("Ready to rinse", now);
-                                    pulse = Some(Pulse::Tap);
-                                }
-                                glyph(Glyph::Soap, drag.point, 24.);
-                                self.drag = Some(drag);
-                            }
-                        }
-                    }
-                }
-            } else if press.is_some_and(|p| (p - center).length() < r * 0.85) {
-                let result = self.pet.care(Care::Pet, miniquad::date::now());
-                pulse = self.respond(result, "Fih loves you", now);
-            }
+            pulse = self.update_drag(ui, now, center, r).or(pulse);
         }
         self.draw_toast(ui, l, now);
         pulse
     }
-    fn draw_toast(&self, ui: &Ui, l: &FihLayout, now: f64) {
-        if self.save_failed || (!self.message.is_empty() && now < self.toast_until) {
+    fn start_drag(&mut self, tool: DragTool, press: Option<Vec2>, fallback: Vec2) {
+        let point = press.unwrap_or(fallback);
+        self.drag = Some(Drag {
+            tool,
+            keyboard: press.is_none(),
+            started: get_time(),
+            start: point,
+            point,
+        });
+        self.revision += 1;
+    }
+    fn update_drag(&mut self, ui: &Ui, now: f64, center: Vec2, r: f32) -> Option<Pulse> {
+        let mut drag = self.drag.take()?;
+        let ts = touches();
+        if ts.iter().any(|t| t.phase == TouchPhase::Cancelled) || ts.len() > 1 {
+            self.lather.end_stroke();
+            return None;
+        }
+        let mut released = active_pointer().is_none();
+        if drag.keyboard {
+            for (key, d) in [
+                (KeyCode::Left, vec2(-1., 0.)),
+                (KeyCode::Right, vec2(1., 0.)),
+                (KeyCode::Up, vec2(0., -1.)),
+                (KeyCode::Down, vec2(0., 1.)),
+            ] {
+                if is_key_pressed(key) {
+                    drag.point += d * r * 0.13;
+                }
+            }
+            released = is_key_pressed(KeyCode::Enter) && now - drag.started > 0.05;
+        } else if let Some(t) = ts.iter().find(|t| t.phase != TouchPhase::Cancelled) {
+            drag.point = touch_point(t.position, screen_dpi_scale());
+        } else {
+            let (x, y) = mouse_position();
+            drag.point = vec2(x, y);
+        }
+        let q = (drag.point - center) / r;
+        match drag.tool {
+            DragTool::Food(index) | DragTool::Potion(index) => {
+                if released {
+                    let start = (drag.start - center) / r;
+                    if can_feed((start.x, start.y), (q.x, q.y), false) {
+                        let (result, text) = if matches!(drag.tool, DragTool::Food(_)) {
+                            self.eaten_food = index;
+                            (self.pet.eat(index, miniquad::date::now()), "Yum!")
+                        } else {
+                            (
+                                self.pet.drink_potion(index, miniquad::date::now()),
+                                "Feeling better",
+                            )
+                        };
+                        return self.respond(result, text, now);
+                    }
+                } else {
+                    if matches!(drag.tool, DragTool::Food(_)) {
+                        food_icon(index, drag.point, 26.);
+                    } else {
+                        potion_icon(index, drag.point, 24.);
+                    }
+                    if mouth_hit((q.x, q.y)) {
+                        draw_circle_lines(center.x, center.y + r * 0.28, r * 0.22, 1.5, MINT);
+                    }
+                    self.drag = Some(drag);
+                }
+            }
+            DragTool::Soap => {
+                if released {
+                    self.lather.end_stroke();
+                } else {
+                    let was = self.lather.ready();
+                    self.lather.rub((q.x, q.y));
+                    self.soap = self.lather.amount;
+                    glyph(Glyph::Soap, drag.point, 24.);
+                    self.drag = Some(drag);
+                    if !was && self.lather.ready() {
+                        return Some(Pulse::Tap);
+                    }
+                }
+            }
+        }
+        let _ = ui;
+        None
+    }
+    fn draw_toast(&self, ui: &Ui, l: &FihLayout, _now: f64) {
+        if self.save_failed {
             let text = if self.save_failed {
                 "Progress could not be saved"
             } else {
@@ -828,16 +854,16 @@ impl FihPage {
             Color::new(0.05, 0.04, 0.08, 0.38),
         );
         let width = (screen_width() - 24.).min(720.);
-        let height = if matches!(self.overlay, Overlay::Pantry | Overlay::Shop) {
-            (screen_height() * 0.58)
-                .clamp(350., 540.)
+        let height = if matches!(self.overlay, Overlay::Pantry | Overlay::Medicine) {
+            (screen_height() * 0.50)
+                .clamp(320., 480.)
                 .min(screen_height() - 24.)
         } else {
             (screen_height() - 24.).min(720.)
         };
         let rect = Rect::new(
             (screen_width() - width) / 2.,
-            if matches!(self.overlay, Overlay::Pantry | Overlay::Shop) {
+            if matches!(self.overlay, Overlay::Pantry | Overlay::Medicine) {
                 screen_height() - height - 12.
             } else {
                 (screen_height() - height) / 2.
@@ -897,132 +923,343 @@ impl FihPage {
         }
         None
     }
-    fn pantry(&mut self, ui: &mut Ui, now: f64) -> Option<Pulse> {
-        let shop = self.overlay == Overlay::Shop;
-        let rect = self.panel(ui, if shop { "Food shop" } else { "Pantry" })?;
-        let cats = ["Fresh", "Meals", "Treats", "Drinks"];
-        let gap = 5.;
-        let cell = (rect.w - 32. - gap * 3.) / 4.;
-        for (i, title) in cats.into_iter().enumerate() {
-            let tab = Rect::new(
-                rect.x + 16. + i as f32 * (cell + gap),
-                rect.y + 72.,
-                cell,
-                44.,
+    fn pantry(&mut self, ui: &mut Ui, press: Option<Vec2>, _now: f64) -> Option<Pulse> {
+        let rect = self.panel(ui, "Pantry")?;
+        let foods: Vec<_> = (0..FOODS.len())
+            .filter(|&i| i == 0 || self.pet.pantry[i] > 0)
+            .collect();
+        let landscape = rect.w > rect.h * 1.3;
+        let cols = 3;
+        let size = if landscape { 3 } else { 6 };
+        let pages = foods.len().div_ceil(size).max(1);
+        self.food_page %= pages;
+        let rows = size / cols;
+        let cw = (rect.w - 48.) / cols as f32;
+        let ch = (rect.h - 144. - 8. * (rows - 1) as f32) / rows as f32;
+        for (slot, &index) in foods
+            .iter()
+            .skip(self.food_page * size)
+            .take(size)
+            .enumerate()
+        {
+            let card = Rect::new(
+                rect.x + 16. + (slot % cols) as f32 * (cw + 8.),
+                rect.y + 66. + (slot / cols) as f32 * (ch + 8.),
+                cw,
+                ch,
             );
-            glass(ui, tab, 16.);
+            rounded(
+                card,
+                16.,
+                if ui.theme.saver {
+                    BLACK
+                } else {
+                    color_u8!(253, 244, 225, 255)
+                },
+            );
+            food_icon(
+                index,
+                vec2(card.center().x, card.y + ch * 0.40),
+                ch.min(cw) * 0.26,
+            );
             ui.centered(
-                title,
+                FOODS[index].name,
+                Rect::new(card.x, card.bottom() - 35., card.w, 19.),
+                11.,
+                if ui.theme.saver { WHITE } else { INK },
+                true,
+            );
+            ui.centered(
+                &if index == 0 {
+                    "∞".into()
+                } else {
+                    format!("× {}", self.pet.pantry[index])
+                },
+                Rect::new(card.x, card.bottom() - 18., card.w, 15.),
+                10.,
+                if ui.theme.saver { WHITE } else { INK },
+                false,
+            );
+            if ui.hit(card) {
+                self.selected_food = index;
+                let pointer = press;
+                self.overlay = Overlay::None;
+                ui.reset_focus();
+                self.start_drag(DragTool::Food(index), pointer, card.center());
+                return Some(Pulse::Tap);
+            }
+        }
+        let y = rect.bottom() - 60.;
+        if icon_button(ui, Glyph::Back, Rect::new(rect.x + 16., y, 44., 44.), false) {
+            self.food_page = (self.food_page + pages - 1) % pages;
+            self.revision += 1;
+        }
+        if icon_button(
+            ui,
+            Glyph::Next,
+            Rect::new(rect.right() - 60., y, 44., 44.),
+            false,
+        ) {
+            self.food_page = (self.food_page + 1) % pages;
+            self.revision += 1;
+        }
+        let shop = Rect::new(rect.center().x - 64., y, 128., 44.);
+        if ui.button("Food shop", shop, false) {
+            self.open(Overlay::Shop, ui);
+            self.food_page = 0;
+        }
+        None
+    }
+    fn food_shop(&mut self, ui: &mut Ui, _now: f64) -> Option<Pulse> {
+        let rect = self.panel(ui, "Food shop")?;
+        let cats = ["Fresh", "Meals", "Treats", "Drinks"];
+        let tw = (rect.w - 32.) / 4.;
+        for (i, name) in cats.into_iter().enumerate() {
+            let tab = Rect::new(rect.x + 16. + i as f32 * tw, rect.y + 66., tw - 3., 44.);
+            rounded(
+                tab,
+                12.,
+                if ui.theme.saver {
+                    BLACK
+                } else if self.category == i {
+                    color_u8!(220, 237, 230, 255)
+                } else {
+                    color_u8!(245, 247, 243, 255)
+                },
+            );
+            ui.centered(
+                name,
                 tab,
                 11.,
-                if i == self.category {
-                    LILAC
-                } else if ui.theme.saver {
-                    WHITE
-                } else {
-                    INK
-                },
+                if ui.theme.saver { WHITE } else { INK },
                 true,
             );
             if ui.hit(tab) {
                 self.category = i;
+                self.food_page = 0;
                 self.revision += 1;
             }
         }
         let foods: Vec<_> = FOODS
             .iter()
             .enumerate()
-            .filter(|(_, f)| f.category == self.category)
+            .filter(|(i, f)| *i > 0 && f.category == self.category)
             .collect();
-        let cols = if rect.w > rect.h * 1.3 { 4 } else { 2 };
-        let rows = foods.len().div_ceil(cols);
-        let cw = (rect.w - 32. - 10. * (cols - 1) as f32) / cols as f32;
-        let ch = ((rect.h - 208.) / rows as f32).clamp(68., 140.);
+        let size = if rect.h < 500. { 2 } else { 4 };
+        let pages = foods.len().div_ceil(size).max(1);
+        self.food_page %= pages;
+        let ch = ((rect.h - 184.) / size as f32).clamp(54., 112.);
         let mut pulse = None;
-        for (slot, (index, food)) in foods.into_iter().enumerate() {
-            let card = Rect::new(
-                rect.x + 16. + (slot % cols) as f32 * (cw + 10.),
-                rect.y + 122. + (slot / cols) as f32 * (ch + 8.),
-                cw,
-                ch,
+        for (slot, (index, food)) in foods
+            .iter()
+            .skip(self.food_page * size)
+            .take(size)
+            .enumerate()
+        {
+            let row = Rect::new(
+                rect.x + 16.,
+                rect.y + 120. + slot as f32 * (ch + 6.),
+                rect.w - 32.,
+                ch - 4.,
             );
             rounded(
-                card,
-                22.,
+                row,
+                14.,
                 if ui.theme.saver {
                     BLACK
                 } else {
-                    color_u8!(250, 246, 239, 255)
+                    color_u8!(242, 248, 244, 255)
                 },
             );
-            let compact = ch < 100.;
-            food_icon(
-                index,
-                if compact {
-                    vec2(card.x + 23., card.center().y)
-                } else {
-                    vec2(card.center().x, card.y + ch * 0.32)
-                },
-                if compact { 18. } else { ch * 0.22 },
-            );
-            ui.centered(
+            food_icon(*index, vec2(row.x + 25., row.center().y), 21.);
+            ui.heading(
                 food.name,
-                if compact {
-                    Rect::new(card.x + 44., card.y + 13., card.w - 48., 22.)
-                } else {
-                    Rect::new(card.x, card.y + ch * 0.52, card.w, 20.)
-                },
-                if compact { 11. } else { 13. },
+                row.x + 54.,
+                row.y + 22.,
+                12.,
                 if ui.theme.saver { WHITE } else { INK },
-                true,
             );
-            let detail = if shop {
-                if index == 0 {
-                    "Always free".into()
-                } else {
-                    format!("+  {} coins", food.price)
-                }
-            } else if index == 0 {
-                "Unlimited".into()
-            } else {
-                format!("× {}", self.pet.pantry[index])
-            };
-            ui.centered(
-                &detail,
-                if compact {
-                    Rect::new(card.x + 44., card.y + 36., card.w - 48., 18.)
-                } else {
-                    Rect::new(card.x + 2., card.bottom() - 26., card.w - 4., 18.)
-                },
+            ui.label(
+                &format!(
+                    "+{:.0} food  ·  ×{}",
+                    food.nutrition, self.pet.pantry[*index]
+                ),
+                row.x + 54.,
+                row.y + 40.,
                 10.,
-                if ui.theme.saver {
-                    ui.theme.muted
-                } else {
-                    LILAC
-                },
-                false,
+                if ui.theme.saver { ui.theme.muted } else { INK },
             );
-            if ui.hit(card) {
-                self.selected_food = index;
-                if shop && index != 0 {
-                    let result = self.pet.buy_food(index);
-                    pulse = self.respond(result, "Added to pantry", now);
-                } else {
-                    self.overlay = Overlay::None;
-                    self.revision += 1;
-                    ui.reset_focus();
+            let buy = Rect::new(row.right() - 86., row.center().y - 22., 78., 44.);
+            if ui.button(
+                &format!("Buy · {}", food.price),
+                buy,
+                self.pet.coins >= food.price,
+            ) {
+                let result = self.pet.buy_food(*index);
+                if result == Outcome::Changed {
+                    self.save();
                     pulse = Some(Pulse::Tap);
                 }
+                self.message = if result == Outcome::Changed {
+                    "Stock added"
+                } else {
+                    "Not enough coins"
+                }
+                .into();
             }
         }
-        let toggle = Rect::new(rect.x + 16., rect.bottom() - 60., rect.w - 32., 44.);
-        if ui.button(
-            if shop { "Back to pantry" } else { "Food shop" },
-            toggle,
+        let y = rect.bottom() - 56.;
+        if icon_button(ui, Glyph::Back, Rect::new(rect.x + 16., y, 44., 44.), false) {
+            self.food_page = (self.food_page + pages - 1) % pages;
+            self.revision += 1;
+        }
+        if icon_button(ui, Glyph::Next, Rect::new(rect.x + 66., y, 44., 44.), false) {
+            self.food_page = (self.food_page + 1) % pages;
+            self.revision += 1;
+        }
+        ui.centered(
+            &format!("{} coins", self.pet.coins),
+            Rect::new(rect.x + 116., y, rect.w - 192., 44.),
+            11.,
+            if ui.theme.saver { WHITE } else { INK },
+            true,
+        );
+        if icon_button(
+            ui,
+            Glyph::Fridge,
+            Rect::new(rect.right() - 60., y, 44., 44.),
             false,
         ) {
-            self.overlay = if shop { Overlay::Pantry } else { Overlay::Shop };
-            self.revision += 1;
+            self.open(Overlay::Pantry, ui);
+            self.food_page = 0;
+        }
+        pulse
+    }
+    fn medicine(&mut self, ui: &mut Ui, press: Option<Vec2>, now: f64) -> Option<Pulse> {
+        let shop = self.overlay == Overlay::PotionShop;
+        let rect = self.panel(ui, if shop { "Potion shop" } else { "Cabinet" })?;
+        let mut pulse = None;
+        if shop {
+            let ch = ((rect.h - 132.) / 3.).clamp(48., 140.);
+            for (i, potion) in POTIONS.iter().enumerate() {
+                let row = Rect::new(
+                    rect.x + 16.,
+                    rect.y + 66. + i as f32 * (ch + 5.),
+                    rect.w - 32.,
+                    ch - 4.,
+                );
+                rounded(
+                    row,
+                    16.,
+                    if ui.theme.saver {
+                        BLACK
+                    } else {
+                        color_u8!(243, 248, 242, 255)
+                    },
+                );
+                potion_icon(i, vec2(row.x + 25., row.center().y), 20.);
+                ui.heading(
+                    potion.name,
+                    row.x + 52.,
+                    row.y + 21.,
+                    12.,
+                    if ui.theme.saver { WHITE } else { INK },
+                );
+                let benefit = match i {
+                    0 => "+30 health",
+                    1 => "+35 energy",
+                    _ => "+45 health",
+                };
+                ui.label(
+                    benefit,
+                    row.x + 52.,
+                    row.y + 39.,
+                    9.,
+                    if ui.theme.saver { WHITE } else { INK },
+                );
+                if i == 2 {
+                    ui.label(
+                        "+25 rest · +15 food",
+                        row.x + 52.,
+                        row.y + 53.,
+                        9.,
+                        if ui.theme.saver { WHITE } else { INK },
+                    );
+                }
+                let button = Rect::new(row.right() - 88., row.center().y - 22., 80., 44.);
+                if ui.button(
+                    &format!("Buy · {}", potion.price),
+                    button,
+                    self.pet.coins >= potion.price,
+                ) {
+                    let result = self.pet.buy_potion(i);
+                    if result == Outcome::Changed {
+                        self.save();
+                        pulse = Some(Pulse::Tap);
+                    }
+                }
+            }
+            if ui.button(
+                &format!("Cabinet · {} coins", self.pet.coins),
+                Rect::new(rect.x + 16., rect.bottom() - 56., rect.w - 32., 44.),
+                false,
+            ) {
+                self.open(Overlay::Medicine, ui);
+            }
+        } else {
+            let cw = (rect.w - 48.) / 3.;
+            let ch = rect.h - 142.;
+            for (i, potion) in POTIONS.iter().enumerate() {
+                let card = Rect::new(rect.x + 16. + i as f32 * (cw + 8.), rect.y + 66., cw, ch);
+                rounded(
+                    card,
+                    16.,
+                    if ui.theme.saver {
+                        BLACK
+                    } else {
+                        color_u8!(239, 246, 237, 255)
+                    },
+                );
+                potion_icon(
+                    i,
+                    vec2(card.center().x, card.y + ch * 0.42),
+                    ch.min(cw) * 0.28,
+                );
+                ui.centered(
+                    potion.name,
+                    Rect::new(card.x, card.bottom() - 42., cw, 21.),
+                    11.,
+                    if ui.theme.saver { WHITE } else { INK },
+                    true,
+                );
+                ui.centered(
+                    &format!("× {}", self.pet.potions[i]),
+                    Rect::new(card.x, card.bottom() - 22., cw, 18.),
+                    11.,
+                    if ui.theme.saver { WHITE } else { INK },
+                    false,
+                );
+                if ui.hit(card) {
+                    if self.pet.potions[i] == 0 {
+                        self.open(Overlay::PotionShop, ui);
+                    } else if self.pet.sleeping {
+                        pulse = self.respond(Outcome::Sleeping, "", now);
+                    } else {
+                        self.selected_potion = i;
+                        let pointer = press;
+                        self.overlay = Overlay::None;
+                        ui.reset_focus();
+                        self.start_drag(DragTool::Potion(i), pointer, card.center());
+                    }
+                }
+            }
+            if ui.button(
+                "Buy potions",
+                Rect::new(rect.x + 16., rect.bottom() - 56., rect.w - 32., 44.),
+                true,
+            ) {
+                self.open(Overlay::PotionShop, ui);
+            }
         }
         pulse
     }
@@ -1050,8 +1287,11 @@ impl FihPage {
     fn wardrobe(&mut self, ui: &mut Ui, now: f64) -> Option<Pulse> {
         let rect = self.panel(ui, "Wardrobe")?;
         let compact = rect.h < 550.;
-        let landscape = rect.h < 400.;
-        let ph = if landscape {
+        let landscape = rect.h < 400. && rect.w > rect.h * 1.3;
+        let narrow = rect.h < 400. && !landscape;
+        let ph = if narrow {
+            96.
+        } else if landscape {
             rect.h - 142.
         } else if compact {
             104.
@@ -1061,7 +1301,9 @@ impl FihPage {
         let preview = Rect::new(
             rect.x + 16.,
             rect.y + 66.,
-            if landscape {
+            if narrow {
+                rect.w * 0.42
+            } else if landscape {
                 rect.w * 0.30
             } else {
                 rect.w - 32.
@@ -1107,8 +1349,14 @@ impl FihPage {
             (Style::Hat, Glyph::Hat),
             (Style::Background, Glyph::Wall),
         ];
-        let tw = (content.w - 50.) / 4.;
-        let top = if landscape {
+        let tw = if narrow {
+            (rect.right() - preview.right() - 34.) / 2.
+        } else {
+            (content.w - 50.) / 4.
+        };
+        let top = if narrow {
+            preview.y
+        } else if landscape {
             content.y
         } else {
             preview.bottom() + 12.
@@ -1117,7 +1365,16 @@ impl FihPage {
             if icon_button(
                 ui,
                 kind,
-                Rect::new(content.x + 16. + i as f32 * (tw + 6.), top, tw, 44.),
+                if narrow {
+                    Rect::new(
+                        preview.right() + 12. + (i % 2) as f32 * (tw + 6.),
+                        top + (i / 2) as f32 * 50.,
+                        tw,
+                        44.,
+                    )
+                } else {
+                    Rect::new(content.x + 16. + i as f32 * (tw + 6.), top, tw, 44.)
+                },
                 style == self.style,
             ) {
                 self.style = style;
@@ -1126,7 +1383,11 @@ impl FihPage {
                 self.revision += 1;
             }
         }
-        let grid_top = top + 56.;
+        let grid_top = if narrow {
+            preview.bottom() + 12.
+        } else {
+            top + 56.
+        };
         let grid_bottom = rect.bottom() - if landscape { 94. } else { 112. };
         let page_size = if compact { 3 } else { 6 };
         let ch = if compact {
@@ -1179,7 +1440,7 @@ impl FihPage {
                     &format!("{}", self.style.price(index)),
                     Rect::new(card.x, card.bottom() - 12., card.w, 12.),
                     8.,
-                    LILAC,
+                    if ui.theme.saver { WHITE } else { INK },
                     false,
                 );
             }
@@ -1241,7 +1502,7 @@ impl FihPage {
                 if landscape { 30. } else { 40. },
             ),
             11.,
-            LILAC,
+            if ui.theme.saver { WHITE } else { INK },
             true,
         );
         let owned = self.pet.owns(self.style, self.candidate);
@@ -1264,15 +1525,32 @@ impl FihPage {
     }
     fn games_menu(&mut self, ui: &mut Ui, now: f64) -> Option<Pulse> {
         let rect = self.panel(ui, "Let's play")?;
-        let landscape = rect.h < 400.;
-        let cols = if landscape { 3 } else { 2 };
-        let rows = 5_usize.div_ceil(cols);
+        let cols = if rect.w > 600. || rect.w > rect.h * 1.3 {
+            3
+        } else {
+            2
+        };
+        let size = if rect.h < 520. {
+            if cols == 3 { 6 } else { 4 }
+        } else {
+            8
+        };
+        let pages = Kind::ALL.len().div_ceil(size);
+        self.game_page %= pages;
+        let rows = size.div_ceil(cols);
         let cw = (rect.w - 40. - 8. * (cols - 1) as f32) / cols as f32;
-        let ch = (rect.h - 88. - 8. * (rows - 1) as f32) / rows as f32;
-        for (i, kind) in Kind::ALL.into_iter().enumerate() {
+        let ch = (rect.h - 88. - if pages > 1 { 52. } else { 0. } - 8. * (rows - 1) as f32)
+            / rows as f32;
+        for (slot, kind) in Kind::ALL
+            .into_iter()
+            .skip(self.game_page * size)
+            .take(size)
+            .enumerate()
+        {
+            let i = kind.index();
             let card = Rect::new(
-                rect.x + 20. + (i % cols) as f32 * (cw + 8.),
-                rect.y + 68. + (i / cols) as f32 * (ch + 8.),
+                rect.x + 20. + (slot % cols) as f32 * (cw + 8.),
+                rect.y + 68. + (slot / cols) as f32 * (ch + 8.),
                 cw,
                 ch,
             );
@@ -1383,11 +1661,55 @@ impl FihPage {
                         0.,
                     );
                 }
+                Kind::Rally => {
+                    for i in 0..12 {
+                        rounded(
+                            Rect::new(
+                                scene.x + (i % 6) as f32 * scene.w / 6. + 2.,
+                                scene.y + (i / 6) as f32 * 12.,
+                                scene.w / 6. - 4.,
+                                9.,
+                            ),
+                            3.,
+                            [PINK, MINT, GOLD][i % 3],
+                        );
+                    }
+                    pearl(scene.center(), 7.);
+                    rounded(
+                        Rect::new(scene.center().x - 22., scene.bottom() - 10., 44., 7.),
+                        3.,
+                        BLUE,
+                    );
+                }
+                Kind::Dodge => {
+                    for (x, y) in [(0.2, 0.2), (0.8, 0.5), (0.65, 0.08)] {
+                        draw_poly(scene.x + x * scene.w, scene.y + y * scene.h, 8, 8., 0., INK);
+                    }
+                    pearl(scene.point() + vec2(scene.w * 0.45, scene.h * 0.35), 7.);
+                    self.art.fish(
+                        scene.point() + vec2(scene.w * 0.4, scene.h * 0.72),
+                        scene.h.min(scene.w) * 0.14,
+                        &self.pet,
+                        0.,
+                    );
+                }
+                Kind::Beats => {
+                    for i in 0..3 {
+                        let x = scene.x + (i as f32 + 0.5) * scene.w / 3.;
+                        draw_line(x, scene.y, x, scene.bottom(), 2., LILAC);
+                        bubble(
+                            vec2(x, scene.y + scene.h * (0.2 + i as f32 * 0.18)),
+                            9.,
+                            [PINK, BLUE, MINT][i],
+                        );
+                        draw_circle(x, scene.bottom() - 7., 6., [PINK, BLUE, MINT][i]);
+                    }
+                }
             }
             ui.centered(
                 kind.title(),
                 Rect::new(card.x, card.bottom() - 42., card.w, 21.),
-                if landscape { 11. } else { 13. },
+                13.,
                 if ui.theme.saver { WHITE } else { INK },
                 true,
             );
@@ -1395,7 +1717,7 @@ impl FihPage {
                 &format!("Best {}", self.pet.best[i]),
                 Rect::new(card.x, card.bottom() - 22., card.w, 16.),
                 10.,
-                LILAC,
+                if ui.theme.saver { WHITE } else { INK },
                 false,
             );
             if ui.hit(card) {
@@ -1409,6 +1731,29 @@ impl FihPage {
                 ui.reset_focus();
                 return Some(Pulse::Tap);
             }
+        }
+        if pages > 1 {
+            let y = rect.bottom() - 56.;
+            if icon_button(ui, Glyph::Back, Rect::new(rect.x + 20., y, 44., 44.), false) {
+                self.game_page = (self.game_page + pages - 1) % pages;
+                self.revision += 1;
+            }
+            if icon_button(
+                ui,
+                Glyph::Next,
+                Rect::new(rect.right() - 64., y, 44., 44.),
+                false,
+            ) {
+                self.game_page = (self.game_page + 1) % pages;
+                self.revision += 1;
+            }
+            ui.centered(
+                &format!("{} / {}", self.game_page + 1, pages),
+                Rect::new(rect.x + 74., y, rect.w - 148., 44.),
+                11.,
+                if ui.theme.saver { WHITE } else { INK },
+                true,
+            );
         }
         None
     }
@@ -1482,7 +1827,7 @@ impl FihPage {
         let score = Rect::new(x, 66., w, 34.);
         glass(ui, score, 15.);
         ui.label(
-            &format!("{} points", r.score),
+            &format!("{} pts · Lv {}", r.score, r.level()),
             x + 14.,
             89.,
             14.,
@@ -1495,7 +1840,16 @@ impl FihPage {
             LILAC,
             true,
         );
-        if matches!(r.kind, Kind::Catch | Kind::Pop | Kind::Hop | Kind::Swim) {
+        if matches!(
+            r.kind,
+            Kind::Catch
+                | Kind::Pop
+                | Kind::Hop
+                | Kind::Swim
+                | Kind::Rally
+                | Kind::Dodge
+                | Kind::Beats
+        ) {
             for i in 0..r.lives {
                 heart(vec2(x + w * 0.53 + f32::from(i) * 18., 83.), 7., PINK);
             }
@@ -1551,7 +1905,7 @@ impl FihPage {
         let mut pulse = None;
         if active && !r.paused {
             match r.kind {
-                Kind::Catch => {
+                Kind::Catch | Kind::Rally | Kind::Dodge => {
                     if let Some(p) = pointer
                         && area.contains(p)
                     {
@@ -1600,6 +1954,23 @@ impl FihPage {
                             }
                         } else {
                             r.pop((p.x - area.x) / area.w, (p.y - area.y) / area.h);
+                        }
+                    }
+                }
+                Kind::Beats => {
+                    if let Some(p) = press.filter(|p| area.contains(*p)) {
+                        let lane = (((p.x - area.x) / area.w) * 3.).floor().min(2.) as usize;
+                        if r.beat(lane) {
+                            pulse = Some(Pulse::Tap);
+                        }
+                    }
+                    if !ui.keyboard_focus {
+                        for (lane, key) in
+                            [KeyCode::A, KeyCode::S, KeyCode::D].into_iter().enumerate()
+                        {
+                            if is_key_pressed(key) && r.beat(lane) {
+                                pulse = Some(Pulse::Tap);
+                            }
                         }
                     }
                 }
@@ -1827,8 +2198,9 @@ impl FihPage {
                     if px < area.x || px > area.right() {
                         continue;
                     }
-                    let top = area.y + (gate.gap - 0.20) * area.h;
-                    let bottom = area.y + (gate.gap + 0.20) * area.h;
+                    let opening = (0.20 - r.elapsed as f32 * 0.001).max(0.145) + 0.03;
+                    let top = area.y + (gate.gap - opening) * area.h;
+                    let bottom = area.y + (gate.gap + opening) * area.h;
                     rounded(
                         Rect::new(px - 12., area.y + 6., 24., (top - area.y - 6.).max(0.)),
                         10.,
@@ -1850,6 +2222,124 @@ impl FihPage {
                     &self.pet,
                     (now * 6.) as f32,
                 );
+            }
+            Kind::Rally => {
+                for i in 0..24 {
+                    if !r.extras.bricks[i] {
+                        continue;
+                    }
+                    let rect = Rect::new(
+                        area.x + (0.035 + (i % 6) as f32 * 0.16) * area.w,
+                        area.y + (0.105 + (i / 6) as f32 * 0.065) * area.h,
+                        area.w * 0.13,
+                        area.h * 0.05,
+                    );
+                    rounded(rect, 7., [PINK, MINT, GOLD, LILAC][i / 6]);
+                    draw_arc(
+                        rect.center().x,
+                        rect.bottom(),
+                        24,
+                        rect.h * 0.7,
+                        190.,
+                        1.2,
+                        160.,
+                        WHITE,
+                    );
+                }
+                let p = area.point() + vec2(r.extras.ball.0 * area.w, r.extras.ball.1 * area.h);
+                pearl(p, area.w.min(area.h) * 0.026);
+                let pw = r.extras.paddle_width(r.elapsed) * area.w;
+                rounded(
+                    Rect::new(
+                        area.x + r.player * area.w - pw / 2.,
+                        area.y + area.h * 0.85,
+                        pw,
+                        10.,
+                    ),
+                    5.,
+                    BLUE,
+                );
+                self.art.fish(
+                    area.point() + vec2(r.player * area.w, area.h * 0.91),
+                    area.h.min(area.w) * 0.034,
+                    &self.pet,
+                    (now * 4.) as f32,
+                );
+            }
+            Kind::Dodge => {
+                for o in &r.extras.obstacles {
+                    let p = area.point() + vec2(o.x * area.w, o.y * area.h);
+                    if !area.contains(p) {
+                        continue;
+                    }
+                    if o.good {
+                        pearl(p, area.w.min(area.h) * 0.027);
+                    } else {
+                        draw_poly(
+                            p.x,
+                            p.y,
+                            8,
+                            area.w.min(area.h) * 0.04,
+                            (r.elapsed * 45.) as f32,
+                            INK,
+                        );
+                        draw_circle(p.x - 3., p.y - 2., 2., WHITE);
+                        draw_circle(p.x + 3., p.y - 2., 2., WHITE);
+                    }
+                }
+                self.art.fish(
+                    area.point() + vec2(r.player * area.w, area.h * 0.82),
+                    area.w.min(area.h) * 0.038,
+                    &self.pet,
+                    (now * 6.) as f32,
+                );
+            }
+            Kind::Beats => {
+                let colors = [PINK, BLUE, MINT];
+                for (lane, color) in colors.into_iter().enumerate() {
+                    let x = area.x + area.w * (lane as f32 + 0.5) / 3.;
+                    draw_line(
+                        x,
+                        area.y + 12.,
+                        x,
+                        area.bottom() - 10.,
+                        2.,
+                        if ui.theme.saver {
+                            INK
+                        } else {
+                            color_u8!(207, 225, 234, 255)
+                        },
+                    );
+                    draw_circle_lines(
+                        x,
+                        area.y + area.h * 0.82,
+                        area.w.min(area.h) * 0.065,
+                        3.,
+                        color,
+                    );
+                    ui.centered(
+                        ["A", "S", "D"][lane],
+                        Rect::new(x - 22., area.bottom() - 31., 44., 24.),
+                        12.,
+                        if ui.theme.saver { WHITE } else { INK },
+                        true,
+                    );
+                }
+                for note in &r.extras.notes {
+                    let p = area.point()
+                        + vec2(area.w * (note.lane as f32 + 0.5) / 3., note.y * area.h);
+                    bubble(p, area.w.min(area.h) * 0.045, colors[note.lane]);
+                    pearl(p, area.w.min(area.h) * 0.017);
+                }
+                if r.extras.combo >= 3 {
+                    ui.centered(
+                        &format!("{} streak", r.extras.combo),
+                        Rect::new(area.x, area.y + 8., area.w, 21.),
+                        11.,
+                        LILAC,
+                        true,
+                    );
+                }
             }
         }
         for effect in &r.effects {
@@ -1963,9 +2453,13 @@ impl FihPage {
                 Overlay::Shop => "Food shop",
                 Overlay::Wardrobe => "Wardrobe",
                 Overlay::Games => "Mini-games",
+                Overlay::Medicine => "Potion cabinet",
+                Overlay::PotionShop => "Potion shop",
             };
             let selection = if self.overlay == Overlay::Wardrobe {
                 self.style_name(self.candidate)
+            } else if self.room == Room::Clinic {
+                POTIONS[self.selected_potion].name
             } else {
                 FOODS[self.selected_food].name
             };
@@ -2014,7 +2508,7 @@ impl FihPreview {
             saver,
             false,
         );
-        art.fish(vec2(557., 575.), 310., pet, 0.);
+        art.fish(vec2(512., 486.), 265., pet, 0.);
         set_default_camera();
         Self { target }
     }
@@ -2031,4 +2525,25 @@ impl FihPreview {
             },
         );
     }
+}
+
+fn active_pointer() -> Option<Vec2> {
+    let ts = touches();
+    if ts.iter().any(|t| t.phase == TouchPhase::Cancelled) || ts.len() > 1 {
+        return None;
+    }
+    ts.iter()
+        .find(|t| {
+            matches!(
+                t.phase,
+                TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary
+            )
+        })
+        .map(|t| touch_point(t.position, screen_dpi_scale()))
+        .or_else(|| {
+            is_mouse_button_down(MouseButton::Left).then(|| {
+                let (x, y) = mouse_position();
+                vec2(x, y)
+            })
+        })
 }

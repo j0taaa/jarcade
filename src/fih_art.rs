@@ -512,7 +512,6 @@ pub fn glass(ui: &Ui, rect: Rect, r: f32) {
 pub enum Glyph {
     Back,
     Next,
-    Settings,
     Food,
     Soap,
     Shower,
@@ -552,11 +551,6 @@ pub fn glyph(kind: Glyph, p: Vec2, r: f32) {
         Glyph::Close => {
             line(vec2(-0.4, -0.4), vec2(0.4, 0.4));
             line(vec2(-0.4, 0.4), vec2(0.4, -0.4));
-        }
-        Glyph::Settings => {
-            draw_poly(p.x, p.y, 8, r * 0.7, 22., LILAC);
-            draw_circle(p.x, p.y, r * 0.35, WHITE);
-            draw_circle(p.x, p.y, r * 0.16, INK);
         }
         Glyph::Food => food_icon(1, p, r),
         Glyph::Heart => heart(p, r * 0.7, PINK),
@@ -944,5 +938,59 @@ pub fn food_icon(index: usize, p: Vec2, r: f32) {
             );
             ellipse(p + vec2(0., r * 0.2), vec2(r * 0.37, r * 0.19), PINK);
         }
+    }
+}
+
+pub fn ball_icon(p: Vec2, r: f32, phase: f32) {
+    draw_circle(p.x, p.y, r, BLUE);
+    for i in 0..6 {
+        let a = i as f32 * std::f32::consts::TAU / 6. + phase;
+        let b = a + std::f32::consts::TAU / 6.;
+        draw_triangle(
+            p,
+            p + vec2(a.cos(), a.sin()) * r,
+            p + vec2(b.cos(), b.sin()) * r,
+            if i % 2 == 0 { PINK } else { GOLD },
+        );
+    }
+    draw_circle(
+        p.x - r * 0.3,
+        p.y - r * 0.35,
+        r * 0.17,
+        color_u8!(255, 255, 255, 180),
+    );
+}
+pub fn potion_icon(index: usize, p: Vec2, r: f32) {
+    let c = [MINT, GOLD, LILAC][index.min(2)];
+    rounded(
+        Rect::new(p.x - r * 0.2, p.y - r * 0.9, r * 0.4, r * 0.45),
+        r * 0.06,
+        INK,
+    );
+    draw_circle(p.x, p.y + r * 0.15, r * 0.62, c);
+    draw_circle(
+        p.x - r * 0.2,
+        p.y - r * 0.05,
+        r * 0.13,
+        color_u8!(255, 255, 255, 170),
+    );
+    if index == 0 {
+        draw_rectangle(p.x - r * 0.1, p.y - r * 0.05, r * 0.2, r * 0.5, WHITE);
+        draw_rectangle(p.x - r * 0.25, p.y + r * 0.1, r * 0.5, r * 0.2, WHITE);
+    } else if index == 1 {
+        draw_triangle(
+            p + vec2(0.1, -0.25) * r,
+            p + vec2(-0.25, 0.22) * r,
+            p + vec2(0.2, 0.12) * r,
+            WHITE,
+        );
+        draw_triangle(
+            p + vec2(-0.1, 0.55) * r,
+            p + vec2(0.25, 0.1) * r,
+            p + vec2(-0.2, 0.18) * r,
+            WHITE,
+        );
+    } else {
+        heart(p + vec2(0., 0.15) * r, r * 0.28, WHITE);
     }
 }

@@ -123,8 +123,15 @@ fn fin(p: Vec2, r: f32, side: f32, flap: f32, body: Color) {
 pub fn fish(p: Vec2, r: f32, pet: &Fih, pose: Pose, art: &crate::fih_art::Art) {
     let phase = pose.phase;
     let r = r * (1. + phase.sin() * 0.009);
-    let p = p + vec2(0., phase.sin() * r * 0.026 - pose.delight * r * 0.075);
-    let body = COLORS[usize::from(pet.color)];
+    let p = p + vec2(
+        (phase * 6.).sin() * pose.refuse * r * 0.07,
+        phase.sin() * r * 0.026 - pose.delight * r * 0.075,
+    );
+    let body = mix(
+        COLORS[usize::from(pet.color)],
+        color_u8!(187, 203, 178, 255),
+        pose.ill * 0.30,
+    );
     let dark = mix(
         body,
         color_u8!(202, 80, 34, 255),
@@ -249,7 +256,8 @@ pub fn fish(p: Vec2, r: f32, pet: &Fih, pose: Pose, art: &crate::fih_art::Art) {
         |_| Color::new(1., 0.93, 0.68, 0.3),
     );
     let blink = if pet.sleeping { 1. } else { pose.blink };
-    let eye_height = (1. - blink.clamp(0., 1.)).max(0.05);
+    let eye_height =
+        ((1. - blink.clamp(0., 1.)) * (1. - pose.tired * 0.35 - pose.ill * 0.20)).max(0.05);
     for side in [-1., 1.] {
         let e = p + vec2(side * 0.49, -0.12) * r;
         if pet.sleeping || eye_height < 0.20 {
@@ -290,8 +298,8 @@ pub fn fish(p: Vec2, r: f32, pet: &Fih, pose: Pose, art: &crate::fih_art::Art) {
             )
         });
         let iris = e + vec2(
-            -side * r * 0.035 + pose.look.0 * r * 0.055,
-            r * (0.015 + pose.look.1 * 0.045),
+            (pose.look.0 - side * 0.25) * r * 0.045,
+            (0.01 + pose.look.1 * 0.04) * r * eye_height,
         );
         gradient_ellipse(iris, vec2(r * 0.185, r * 0.25 * eye_height), |q| {
             mix(
@@ -329,7 +337,26 @@ pub fn fish(p: Vec2, r: f32, pet: &Fih, pose: Pose, art: &crate::fih_art::Art) {
             |q| Color::new(1., 0.40, 0.32, (1. - q.length()).max(0.) * 0.5),
         );
     }
-    if pet.sleeping {
+    if pose.refuse > 0.1 {
+        stroke(
+            p,
+            r,
+            [
+                vec2(-0.17, 0.23),
+                vec2(-0.05, 0.23),
+                vec2(0.05, 0.23),
+                vec2(0.17, 0.23),
+            ],
+            0.03,
+            INK,
+        );
+    } else if pose.hungry > 0.1 && pose.mouth < 0.1 && pose.delight < 0.1 {
+        gradient_ellipse(
+            p + vec2(0., 0.26) * r,
+            vec2(r * 0.085, r * (0.055 + pose.hungry * 0.035)),
+            |_| INK,
+        );
+    } else if pet.sleeping {
         stroke(
             p,
             r,
@@ -342,7 +369,11 @@ pub fn fish(p: Vec2, r: f32, pet: &Fih, pose: Pose, art: &crate::fih_art::Art) {
             0.024,
             INK,
         );
-    } else if pet.joy < 25. && pose.mouth < 0.1 && pose.chew.abs() < 0.05 && pose.delight < 0.1 {
+    } else if (pose.sad > 0.2 || pose.ill > 0.2)
+        && pose.mouth < 0.1
+        && pose.chew.abs() < 0.05
+        && pose.delight < 0.1
+    {
         stroke(
             p,
             r,
@@ -392,11 +423,38 @@ pub fn fish(p: Vec2, r: f32, pet: &Fih, pose: Pose, art: &crate::fih_art::Art) {
         });
     }
     art.hat(p, r, pet.hat);
-    if pet.clean < 35. {
-        for v in [vec2(-0.33, 0.43), vec2(0.37, 0.46), vec2(0.16, -0.62)] {
-            gradient_ellipse(p + v * r, vec2(r * 0.06, r * 0.04), |_| {
-                color_u8!(143, 102, 70, 130)
+    if pet.clean < 65. {
+        let dirt = ((65. - pet.clean) / 65.).clamp(0., 1.);
+        for (i, v) in [
+            vec2(-0.33, 0.43),
+            vec2(0.37, 0.46),
+            vec2(0.16, -0.62),
+            vec2(-0.61, -0.45),
+            vec2(0.64, 0.1),
+            vec2(-0.16, 0.73),
+            vec2(0.43, -0.51),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let size = 0.04 + dirt * 0.075;
+            gradient_ellipse(p + v * r, vec2(r * size, r * size * 0.65), |_| {
+                Color::new(0.39, 0.29, 0.18, 0.2 + dirt * 0.65)
             });
+            if dirt > 0.6 && i % 2 == 0 {
+                stroke(
+                    p,
+                    r,
+                    [
+                        v + vec2(-0.05, -0.025),
+                        v,
+                        v + vec2(0.04, 0.06),
+                        v + vec2(0.07, 0.06),
+                    ],
+                    0.017,
+                    Color::new(0.39, 0.29, 0.18, dirt * 0.6),
+                );
+            }
         }
     }
 }

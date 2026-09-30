@@ -239,10 +239,11 @@ impl MinesPage {
     fn setup(&mut self, ui: &mut Ui) {
         let width = (screen_width() - 40.).min(560.);
         let x = (screen_width() - width) / 2.;
-        let short = screen_height() < 400.;
+        let short = screen_height() < 500.;
+        let wide = short && width >= 480.;
         ui.heading("Board size", x, 110., 28., ui.theme.text);
         for (i, size) in BoardSize::ALL.into_iter().enumerate() {
-            let card = if short {
+            let card = if wide {
                 Rect::new(
                     x + i as f32 * (width + 12.) / 3.,
                     132.,
@@ -250,7 +251,12 @@ impl MinesPage {
                     80.,
                 )
             } else {
-                Rect::new(x, 136. + i as f32 * 82., width, 72.)
+                Rect::new(
+                    x,
+                    136. + i as f32 * if short { 56. } else { 82. },
+                    width,
+                    if short { 48. } else { 72. },
+                )
             };
             let active = size == self.size;
             bordered(
@@ -267,13 +273,19 @@ impl MinesPage {
                     ui.theme.bg
                 },
             );
-            ui.heading(size.name(), card.x + 16., card.y + 27., 18., ui.theme.text);
+            ui.heading(
+                size.name(),
+                card.x + 16.,
+                card.y + if short && !wide { 20. } else { 27. },
+                18.,
+                ui.theme.text,
+            );
             let (w, h, mines) = size.dimensions();
             ui.label(
                 &format!("{w} × {h} · {mines} mines"),
                 card.x + 16.,
-                card.y + 51.,
-                if short { 11. } else { 13. },
+                card.y + if short && !wide { 38. } else { 51. },
+                if wide { 10. } else { 13. },
                 ui.theme.muted,
             );
             let center = vec2(card.right() - 24., card.y + 24.);
@@ -297,7 +309,18 @@ impl MinesPage {
         }
         if ui.button(
             "Start game",
-            Rect::new(x, if short { 228. } else { 400. }, width, 52.),
+            Rect::new(
+                x,
+                if wide {
+                    228.
+                } else if short {
+                    (screen_height() - 60.).min(312.)
+                } else {
+                    400.
+                },
+                width,
+                52.,
+            ),
             true,
         ) {
             self.start();

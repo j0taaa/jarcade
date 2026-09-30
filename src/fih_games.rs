@@ -6,9 +6,21 @@ pub enum Kind {
     Memory,
     Hop,
     Swim,
+    Rally,
+    Dodge,
+    Beats,
 }
 impl Kind {
-    pub const ALL: [Self; 5] = [Self::Catch, Self::Pop, Self::Memory, Self::Hop, Self::Swim];
+    pub const ALL: [Self; 8] = [
+        Self::Catch,
+        Self::Pop,
+        Self::Memory,
+        Self::Hop,
+        Self::Swim,
+        Self::Rally,
+        Self::Dodge,
+        Self::Beats,
+    ];
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|&k| k == self).unwrap()
     }
@@ -19,6 +31,9 @@ impl Kind {
             Self::Memory => "Memory Reef",
             Self::Hop => "Reef Hop",
             Self::Swim => "Reef Dash",
+            Self::Rally => "Shell Breaker",
+            Self::Dodge => "Pearl Slalom",
+            Self::Beats => "Tide Beats",
         }
     }
     pub fn instruction(self) -> &'static str {
@@ -28,6 +43,9 @@ impl Kind {
             Self::Memory => "Find all six matching pairs.",
             Self::Hop => "Jump left or right before the next stone sinks!",
             Self::Swim => "Tap or press Space to swim up.",
+            Self::Rally => "Drag the paddle · Break all shells",
+            Self::Dodge => "Drag to dodge · Collect pearls",
+            Self::Beats => "Tap on the line · A / S / D",
         }
     }
     pub fn duration(self) -> f64 {
@@ -35,7 +53,7 @@ impl Kind {
             Self::Catch | Self::Hop => 30.,
             Self::Pop => 20.,
             Self::Memory => 60.,
-            Self::Swim => 45.,
+            Self::Swim | Self::Rally | Self::Dodge | Self::Beats => 45.,
         }
     }
 }
@@ -82,6 +100,8 @@ pub struct Round {
     pub matched: [bool; 12],
     pub lanes: [u8; 6],
     pub gates: Vec<Gate>,
+    pub extras: crate::fih_extras::Extras,
+    pub memory_stage: u32,
     pub swim_y: f32,
     pub bubbles: Vec<PopBubble>,
     pub effects: Vec<Effect>,
@@ -117,6 +137,8 @@ impl Round {
             matched: [false; 12],
             lanes: [0; 6],
             gates: Vec::new(),
+            extras: crate::fih_extras::Extras::new(seed.wrapping_add(1)),
+            memory_stage: 1,
             swim_y: 0.5,
             bubbles: Vec::new(),
             effects: Vec::new(),
@@ -154,6 +176,10 @@ impl Round {
         for i in 0..6 {
             r.lanes[i] = u8::from(r.random() >= 0.5);
         }
+        if kind == Kind::Memory {
+            r.shown.fill(true);
+            r.hide_at = Some(1.8);
+        }
         r
     }
     fn random(&mut self) -> f32 {
@@ -168,7 +194,7 @@ impl Round {
     fn spawn_bubble(&mut self) {
         let x = 0.12 + self.random() * 0.76;
         let y = 0.35 + self.random() * 0.5;
-        let danger = self.random() < 0.20;
+        let danger = self.random() < (0.14 + self.elapsed as f32 * 0.01).min(0.34);
         self.bubbles.push(PopBubble {
             x,
             y,
@@ -190,6 +216,25 @@ impl Round {
             age: 0.,
             good,
         });
+    }
+    pub fn level(&self) -> u32 {
+        match self.kind {
+            Kind::Memory => self.memory_stage,
+            Kind::Rally => self.extras.wave,
+            _ => 1 + (self.elapsed / 8.) as u32,
+        }
+    }
+    pub fn beat(&mut self, lane: usize) -> bool {
+        if self.kind != Kind::Beats || self.finished || self.paused {
+            return false;
+        }
+        let (accepted, points, lost) = self.extras.beat(lane, self.elapsed);
+        self.score = (self.score + points).min(100);
+        self.lives = self.lives.saturating_sub(lost);
+        if self.lives == 0 {
+            self.finished = true;
+        }
+        accepted
     }
     pub fn remaining(&self) -> f64 {
         (self.kind.duration() - self.elapsed).max(0.)
@@ -256,11 +301,23 @@ impl Round {
                 self.score += 2;
                 self.combo += 1;
                 if self.matched.iter().all(|&m| m) {
-                    self.finished = true;
+                    if self.memory_stage >= 3 {
+                        self.finished = true;
+                    } else {
+                        self.memory_stage += 1;
+                        self.shown.fill(true);
+                        self.matched.fill(false);
+                        for i in (1..12).rev() {
+                            let j = (self.random() * (i + 1) as f32) as usize;
+                            self.cards.swap(i, j);
+                        }
+                        self.hide_at =
+                            Some(self.elapsed + if self.memory_stage == 2 { 1.1 } else { 0.55 });
+                    }
                 }
             } else {
                 self.combo = 0;
-                self.hide_at = Some(self.elapsed + 0.7);
+                self.hide_at = Some(self.elapsed + (0.85 - self.memory_stage as f64 * 0.15));
             }
         } else {
             self.first = Some(index);
@@ -319,6 +376,17 @@ impl Round {
             let dt = left.min(1. / 240.);
             left -= dt;
             self.elapsed += dt;
+            if matches!(self.kind, Kind::Rally | Kind::Dodge | Kind::Beats) {
+                let (points, lost) = self
+                    .extras
+                    .advance(self.kind, dt, self.elapsed, self.player);
+                self.score = (self.score + points).min(100);
+                self.lives = self.lives.saturating_sub(lost);
+                if self.lives == 0 {
+                    self.finished = true;
+                    break;
+                }
+            }
             for effect in &mut self.effects {
                 effect.age += dt as f32;
             }
@@ -388,7 +456,8 @@ impl Round {
                     if !g.hit
                         && self.elapsed >= self.invincible_until
                         && (g.x - 0.28).abs() < 0.075
-                        && (self.swim_y - g.gap).abs() > 0.17
+                        && (self.swim_y - g.gap).abs()
+                            > (0.20 - self.elapsed as f32 * 0.001).max(0.145)
                     {
                         g.hit = true;
                         self.lives = self.lives.saturating_sub(1);
@@ -417,7 +486,7 @@ impl Round {
                 self.spawn -= dt;
                 if self.spawn <= 0. {
                     let x = 0.08 + self.random() * 0.84;
-                    let danger = self.random() < 0.23;
+                    let danger = self.random() < (0.20 + self.elapsed as f32 * 0.004).min(0.40);
                     self.drops.push(Drop {
                         x,
                         y: -0.04,
@@ -487,6 +556,34 @@ mod tests {
         assert!(results.windows(2).all(|r| r[0] == r[1]));
     }
     #[test]
+    fn additional_games_have_refresh_independent_rules_and_single_rewards() {
+        for kind in [Kind::Rally, Kind::Dodge, Kind::Beats] {
+            let mut outcomes = Vec::new();
+            for fps in [30, 60, 120, 240] {
+                let mut round = Round::new(kind, 42);
+                round.paused = true;
+                round.advance(0.5);
+                assert_eq!(round.elapsed, 0.);
+                assert!(!round.beat(0));
+                assert_eq!(round.claim(), None);
+                round.paused = false;
+                for _ in 0..fps * 45 {
+                    round.advance(1. / f64::from(fps));
+                }
+                assert!(round.finished);
+                outcomes.push((round.score, round.lives));
+                assert_eq!(round.claim(), Some((kind.index(), round.score)));
+                assert_eq!(round.claim(), None);
+            }
+            assert!(
+                outcomes.windows(2).all(|pair| pair[0] == pair[1]),
+                "{}: {:?}",
+                kind.title(),
+                outcomes
+            );
+        }
+    }
+    #[test]
     fn target_taps_pause_and_single_reward_work() {
         let mut r = Round::new(Kind::Pop, 42);
         let (x, y) = r.target;
@@ -520,6 +617,10 @@ mod tests {
     #[test]
     fn memory_matches_and_mismatches_are_safe_and_complete_once() {
         let mut r = Round::new(Kind::Memory, 42);
+        assert!(!r.flip(0));
+        for _ in 0..120 {
+            r.advance(1. / 60.);
+        }
         let a = 0;
         let b = (1..12).find(|&i| r.cards[i] != r.cards[a]).unwrap();
         assert!(r.flip(a));
@@ -529,14 +630,23 @@ mod tests {
         r.advance(0.7);
         assert!(!r.shown[a]);
         assert!(!r.shown[b]);
-        for value in 0..6 {
-            let pair: Vec<_> = (0..12).filter(|&i| r.cards[i] == value).collect();
-            assert!(r.flip(pair[0]));
-            assert!(r.flip(pair[1]));
+        for stage in 1..=3 {
+            for value in 0..6 {
+                let pair: Vec<_> = (0..12).filter(|&i| r.cards[i] == value).collect();
+                assert!(r.flip(pair[0]));
+                assert!(r.flip(pair[1]));
+            }
+            if stage < 3 {
+                assert!(!r.finished);
+                assert_eq!(r.memory_stage, stage + 1);
+                for _ in 0..90 {
+                    r.advance(1. / 60.);
+                }
+            }
         }
         assert!(r.finished);
-        assert_eq!(r.score, 12);
-        assert_eq!(r.claim(), Some((2, 12)));
+        assert_eq!(r.score, 36);
+        assert_eq!(r.claim(), Some((2, 36)));
         assert_eq!(r.claim(), None);
     }
     #[test]

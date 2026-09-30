@@ -344,31 +344,29 @@ impl App {
     fn home(&mut self, ui: &mut Ui, layout: &Layout) -> Action {
         let x = layout.content.x;
         let width = layout.content.w;
-        let compact = screen_height() < 640.0;
-        let title_y = if screen_height() < 400.0 {
-            96.0
-        } else if compact {
-            116.0
+        let tabs_y = if screen_height() < 500. {
+            78.
         } else {
-            146.0
+            let title_y = if screen_height() < 640. { 116. } else { 146. };
+            ui.heading("Games", x, title_y, 44., ui.theme.text);
+            title_y + 24.
         };
-        ui.heading("Games", x, title_y, 44.0, ui.theme.text);
-        let tabs_y = title_y + 24.0;
+        let tab_width = (width - 8.) / 2.;
         if ui.tab(
             "Single player",
-            Rect::new(x, tabs_y, 138.0, 42.0),
+            Rect::new(x, tabs_y, tab_width, 42.),
             !self.multiplayer,
         ) {
             self.multiplayer = false;
         }
         if ui.tab(
             "Multiplayer",
-            Rect::new(x + 144.0, tabs_y, 128.0, 42.0),
+            Rect::new(x + tab_width + 8., tabs_y, tab_width, 42.),
             self.multiplayer,
         ) {
             self.multiplayer = true;
         }
-        let card_y = tabs_y + 68.0;
+        let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
         if self.multiplayer {
             ui.centered(
                 "More games, coming soon.",
@@ -480,7 +478,11 @@ impl App {
         };
         ui.heading("Settings", x, y, 40.0, ui.theme.text);
         let short = screen_height() < 500.0;
-        let row_height = if short { 58.0 } else { 88.0 };
+        let row_height = if short {
+            ((screen_height() - y - 36.) / 3.).clamp(44., 58.)
+        } else {
+            88.
+        };
         let panel = Rect::new(
             x,
             y + if short { 14.0 } else { 30.0 },
@@ -552,7 +554,19 @@ impl App {
 
     fn game_page(&mut self, ui: &mut Ui, layout: &Layout) -> Action {
         let board = layout.board;
-        if !layout.landscape {
+        if !layout.landscape && screen_height() < 540. {
+            ui.centered(
+                &format!(
+                    "Score {}   ·   Best {}",
+                    self.game.score(),
+                    self.settings.best
+                ),
+                Rect::new(board.x, board.y - 28., board.w, 22.),
+                12.,
+                ui.theme.muted,
+                true,
+            );
+        } else if !layout.landscape {
             ui.label("SCORE", board.x, board.y - 58.0, 11.0, ui.theme.muted);
             ui.heading(
                 &format!("{:02}", self.game.score()),
@@ -750,7 +764,6 @@ async fn main() {
                 match app.fih.take_nav() {
                     Nav::None => Action::None,
                     Nav::Arcade => Action::Home,
-                    Nav::Settings => Action::Settings,
                 }
             }
             Screen::Mines => {

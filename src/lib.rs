@@ -2,6 +2,8 @@ pub mod board_pan;
 pub mod curve;
 pub mod feedback;
 pub mod fih;
+pub mod fih_ball;
+pub mod fih_extras;
 pub mod fih_games;
 pub mod fih_interaction;
 pub mod fih_svg;

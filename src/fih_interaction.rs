@@ -7,6 +7,11 @@ pub struct Pose {
     pub chew: f32,
     pub delight: f32,
     pub blink: f32,
+    pub hungry: f32,
+    pub tired: f32,
+    pub ill: f32,
+    pub sad: f32,
+    pub refuse: f32,
 }
 impl Pose {
     pub fn idle(seconds: f64) -> Self {
@@ -16,6 +21,15 @@ impl Pose {
             blink: (1. - (cycle - 4.4).abs() / 0.10).clamp(0., 1.),
             ..Self::default()
         }
+    }
+    pub fn needs(&mut self, pet: &crate::fih::Fih) {
+        self.hungry = ((35. - pet.food) / 35.).clamp(0., 1.);
+        self.tired = ((35. - pet.energy) / 35.).clamp(0., 1.);
+        self.ill = ((45. - pet.health) / 45.).clamp(0., 1.);
+        self.sad = ((35. - pet.joy) / 35.).clamp(0., 1.);
+    }
+    pub fn gaze(&mut self, target: (f32, f32)) {
+        self.look = (target.0.clamp(-1., 1.), target.1.clamp(-1., 1.));
     }
     pub fn watch(&mut self, food: (f32, f32)) {
         self.look = (food.0.clamp(-1., 1.), food.1.clamp(-1., 1.));
@@ -31,6 +45,7 @@ pub enum Action {
     Dress,
     Sleep,
     Wake,
+    Refuse,
 }
 #[derive(Clone, Copy, Debug)]
 pub struct Animation {
@@ -69,6 +84,11 @@ impl Animation {
             }
             Action::Love | Action::Heal | Action::Dress | Action::Wake => pose.delight = pulse,
             Action::Sleep => pose.blink = t,
+            Action::Refuse => {
+                pose.refuse = pulse;
+                pose.mouth = 0.;
+                pose.look = ((t * 18.).sin() * pulse * 0.4, 0.);
+            }
         }
     }
 }
@@ -87,6 +107,7 @@ pub fn body_hit(point: (f32, f32)) -> bool {
 #[derive(Clone, Debug, Default)]
 pub struct Lather {
     pub amount: f32,
+    pub spots: Vec<(f32, f32)>,
     previous: Option<(f32, f32)>,
     sectors: u8,
 }
@@ -105,6 +126,16 @@ impl Lather {
             return false;
         }
         self.amount = (self.amount + distance / 5.).min(1.);
+        if self
+            .spots
+            .last()
+            .is_none_or(|p| (point.0 - p.0).hypot(point.1 - p.1) > 0.065)
+        {
+            if self.spots.len() >= 80 {
+                self.spots.remove(0);
+            }
+            self.spots.push(point);
+        }
         self.sectors |= 1 << (u8::from(point.0 > 0.) + 2 * u8::from(point.1 > 0.));
         true
     }
@@ -178,6 +209,57 @@ mod tests {
         assert!(soap.ready());
         soap.clear();
         assert!(!soap.ready());
+    }
+    #[test]
+    fn bubbles_follow_actual_strokes_and_clear_after_rinsing() {
+        let mut soap = Lather::default();
+        soap.rub((-0.5, -0.3));
+        for i in 0..6 {
+            soap.rub((-0.5 + i as f32 * 0.07, -0.3));
+        }
+        assert!(!soap.spots.is_empty());
+        assert!(soap.spots.iter().all(|&(x, y)| x < 0. && y == -0.3));
+        let n = soap.spots.len();
+        for _ in 0..100 {
+            soap.rub((-0.15, -0.3));
+        }
+        assert_eq!(soap.spots.len(), n);
+        for i in 0..2000 {
+            let a = i as f32 * 0.15;
+            soap.rub((a.cos() * 0.5, a.sin() * 0.5));
+        }
+        assert!(soap.spots.len() <= 80);
+        soap.clear();
+        assert!(soap.spots.is_empty());
+    }
+    #[test]
+    fn needs_and_refusal_change_the_pose_without_opening_the_mouth() {
+        let mut pet = crate::fih::Fih::new(100.);
+        let mut pose = Pose::default();
+        pose.needs(&pet);
+        assert_eq!(
+            (pose.hungry, pose.tired, pose.ill, pose.sad),
+            (0., 0., 0., 0.)
+        );
+        pet.food = 0.;
+        pet.energy = 0.;
+        pet.health = 0.;
+        pet.joy = 0.;
+        pose.needs(&pet);
+        assert_eq!(
+            (pose.hungry, pose.tired, pose.ill, pose.sad),
+            (1., 1., 1., 1.)
+        );
+        pose.gaze((-100., 100.));
+        assert_eq!(pose.look, (-1., 1.));
+        pose.watch((0., 0.28));
+        Animation {
+            action: Action::Refuse,
+            started: 0.,
+        }
+        .apply(&mut pose, 0.8);
+        assert!(pose.refuse > 0.9);
+        assert_eq!(pose.mouth, 0.);
     }
     #[test]
     fn idle_gaze_and_actions_are_time_based_and_finish() {

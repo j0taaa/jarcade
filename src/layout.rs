@@ -58,16 +58,29 @@ impl Layout {
     }
 
     pub fn new(width: f32, height: f32) -> Self {
-        let margin = if width < 600.0 { 20.0 } else { 40.0 };
+        let margin = if width < 360. {
+            16.
+        } else if width < 600. {
+            20.
+        } else {
+            40.
+        };
         let content_width = (width - margin * 2.0).min(1040.0);
-        let landscape = width > height * 1.3 && height < 620.0;
-        let board_y = if landscape { 96.0 } else { 164.0 };
+        let landscape =
+            (width > height * 1.3 && height < 620.0) || (height < 360. && width >= 360.);
+        let board_y = if landscape {
+            if height < 300. { 80. } else { 96. }
+        } else if height < 540. {
+            104.
+        } else {
+            164.
+        };
         let size = if landscape {
             (height - board_y - 20.0).min(width - 260.0)
         } else {
-            (width - margin * 2.0).min(height - board_y - 170.0)
+            (width - margin * 2.0).min(height - board_y - 140.0)
         }
-        .clamp(140.0, 500.0);
+        .clamp(96.0, 500.0);
         let board_x = (width - size - if landscape { 200.0 } else { 0.0 }) / 2.0;
         let board = Rect::new(board_x, board_y, size, size);
         Self {
@@ -77,7 +90,7 @@ impl Layout {
             controls: if landscape {
                 vec2(board_x + size + 110.0, board_y + size / 2.0)
             } else {
-                vec2(width / 2.0, board_y + size + 80.0)
+                vec2(width / 2.0, board_y + size + 70.0)
             },
         }
     }
@@ -90,6 +103,7 @@ mod tests {
     #[test]
     fn game_grid_fits_two_phone_cards_and_more_on_larger_screens() {
         for (width, height, columns) in [
+            (280., 360., 2),
             (320., 480., 2),
             (390., 844., 2),
             (430., 932., 2),
@@ -98,8 +112,8 @@ mod tests {
             (1440., 900., 4),
         ] {
             let layout = Layout::new(width, height);
-            let top = if height < 400. {
-                188.
+            let top = if height < 500. {
+                132.
             } else if height < 640. {
                 208.
             } else {
@@ -107,14 +121,14 @@ mod tests {
             };
             let grid = layout.game_grid(top);
             assert_eq!(grid.columns, columns);
-            for index in 0..columns {
+            for index in 0..3 {
                 let card = grid.card(index);
                 assert!(
                     card.x >= layout.content.x && card.right() <= layout.content.right() + 0.001
                 );
                 assert!(card.bottom() <= height);
-                assert!(card.w >= 128. && card.h >= 100.);
-                if index > 0 {
+                assert!(card.w >= 112. && card.h >= 100.);
+                if index % columns > 0 {
                     assert!(grid.card(index - 1).right() < card.x);
                 }
             }
@@ -134,6 +148,9 @@ mod tests {
     #[test]
     fn board_and_touch_controls_fit_supported_phone_and_desktop_sizes() {
         for (width, height) in [
+            (280., 600.),
+            (320., 360.),
+            (360., 280.),
             (320.0, 480.0),
             (320.0, 568.0),
             (390.0, 664.0),
@@ -233,8 +250,12 @@ pub struct FihLayout {
 impl FihLayout {
     pub fn new(width: f32, height: f32) -> Self {
         let landscape = height < 520. && width > height * 1.3;
-        let stats_width = (width - 132.).min(310.);
-        let stats = Rect::new((width - stats_width) / 2., 6., stats_width, 44.);
+        let stats_width = (width - 90.).clamp(200., 310.).min(width - 64.);
+        let stats = if width < 360. {
+            Rect::new(64., 6., width - 76., 44.)
+        } else {
+            Rect::new((width - stats_width) / 2., 6., stats_width, 44.)
+        };
         let room_nav = Rect::new((width - 240.) / 2., 64., 240., 44.);
         let tools = if landscape {
             Rect::new(width - 152., 112., 140., height - 124.)
@@ -272,6 +293,7 @@ mod fih_layout_tests {
     #[test]
     fn fullscreen_rooms_keep_overlay_controls_inside_the_viewport() {
         for (w, h) in [
+            (280., 360.),
             (568., 320.),
             (320., 480.),
             (390., 844.),
