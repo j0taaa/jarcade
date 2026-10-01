@@ -191,7 +191,7 @@ pub fn court_card(ui: &Ui, rect: Rect, role: Option<Role>, revealed: bool, small
         }
     }
     if !small {
-        let title = role.map_or("COURT", Role::title);
+        let title = role.map_or("COUPE", Role::title);
         ui.centered(
             title,
             Rect::new(rect.x + 4., rect.bottom() - 38., rect.w - 8., 28.),

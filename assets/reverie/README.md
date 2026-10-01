@@ -1,4 +1,4 @@
-# Reverie artwork
+# Dicksit artwork
 
 84 original surreal storytelling illustrations generated with the built-in
 `image_gen` model for Jarcade. No existing Dixit card art was supplied or copied.
@@ -15,4 +15,4 @@ local artifact directory; the compact production assets are committed here.
 The first atlas is embedded for the arcade preview. Web loads other atlases
 only when a hand/table needs them; native builds bundle the same JPEGs. Texture
 caches retain only the current pictures and preview. Failed web loads can be
-retried. These images are exclusive to Reverie; Fih remains code and SVG art.
+retried. These images are exclusive to Dicksit; Fih remains code and SVG art.

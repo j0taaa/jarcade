@@ -1,7 +1,7 @@
 # Jarcade
 
 A small Rust / Macroquad arcade with shared game and UI code for desktop, web,
-Android, and iOS. Play Snake, Minesweeper, Fih, Court, and Reverie.
+Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, and Dicksit.
 
 Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa/jarcade>. Hosting uses this PC and the
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
@@ -297,11 +297,11 @@ six-character room code. Everyone marks Ready; the host starts. Games run on
 separate devices with private hands, secret submissions/votes, and explicit
 challenge/block windows. Back returns to the arcade and preserves the seat;
 Resume/Reconnect restores it, including after a refresh or server restart.
-Leave explicitly removes a lobby seat, forfeits Court, or ends a Reverie match.
+Leave explicitly removes a lobby seat, forfeits Coupe, or ends a Dicksit match.
 The host can open a rematch. Offline players retain their seats until they
 reconnect or leave; turn decisions have no automatic timeout.
 
-**Court** (2–6 players) uses Coup's base seven actions, role powers, challenges,
+**Coupe** (2–6 players) uses Coup's base seven actions, role powers, challenges,
 blocks, exchanges, forced coups at ten coins, and influence elimination. Its
 original woodland portraits are drawn as Rust vectors. Regent = Duke,
 Shade = Assassin, Corsair = Captain, Envoy = Ambassador, Sentinel = Contessa.
@@ -309,7 +309,7 @@ Each role has three cards. Everyone starts with two influences and two coins;
 the first player starts with one coin at two players. Expansion factions,
 Inquisitor, and optional advanced duel setup are outside the base game.
 
-**Reverie** (3–8 players) uses Dixit's storyteller, clues, secret decoys,
+**Dicksit** (3–8 players) uses Dixit's storyteller, clues, secret decoys,
 shuffled gallery, private votes, exact base scoring, discard recycling, and
 30-point end. Normally players hold six cards; at three players they hold seven
 and submit two decoys. There are **84 original AI-generated illustrations**.
@@ -317,7 +317,7 @@ Artwork and full prompts: [assets/reverie/README.md](assets/reverie/README.md).
 
 Tap a clue to read it in full. On short wide displays, scores and clue move beside the picture gallery. Tap a picture for a large preview; Select then confirm with the fixed bottom
 button. Browse by swipe, wheel, arrows or Page Up/Down. Drags and multi-touch
-never select cards. Court's table scrolls on small displays. Tab/Shift+Tab and
+never select cards. Coupe's table scrolls on small displays. Tab/Shift+Tab and
 Enter navigate controls. Web uses the phone/desktop text keyboard; Android provides an in-game touch keyboard because its Miniquad backend has no text IME. The ? button explains rules and original role names.
 
 These are independent adaptations with original names, interface, wording and

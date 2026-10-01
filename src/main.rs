@@ -437,7 +437,7 @@ impl App {
                 self.fih_preview.draw(preview_rect);
             }
             let title = if self.multiplayer {
-                ["Court", "Reverie"][index]
+                ["Coupe", "Dicksit"][index]
             } else {
                 ["Snake", "Minesweeper", "Fih"][index]
             };
@@ -902,7 +902,7 @@ async fn main() {
                 Screen::Multiplayer => app.online.announcement(),
                 Screen::Home => {
                     if app.multiplayer {
-                        "Jarcade. Multiplayer. Select Court or Reverie. Online rooms.".to_owned()
+                        "Jarcade. Multiplayer. Select Coupe or Dicksit. Online rooms.".to_owned()
                     } else {
                         "Jarcade. Games. Select Snake, Minesweeper, or Fih to play.".to_owned()
                     }

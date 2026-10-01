@@ -11,6 +11,6 @@ at runtime. TrueType outlines are used for consistent small-text rasterization.
 ## Game artwork
 
 Fih uses original Rust character geometry and hand-authored SVG rooms; see
-[fih/README.md](fih/README.md). Court uses original Rust vector portraits in
-`src/card_art.rs`. Reverie has 84 original generated paintings; see
+[fih/README.md](fih/README.md). Coupe uses original Rust vector portraits in
+`src/card_art.rs`. Dicksit has 84 original generated paintings; see
 [reverie/README.md](reverie/README.md) for production assets and prompts.

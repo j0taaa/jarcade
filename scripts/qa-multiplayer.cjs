@@ -17,7 +17,7 @@ const url=process.env.JARCADE_QA_URL||'http://127.0.0.1:8091';
  async function lobby(ps){for(let i=1;i<ps.length;i++){const r=await room(ps[i]);await click(ps[i],180,66+80+ps.length*58+12+24);await ps[i].waitForFunction(()=>window.__room.members[window.__room.you].ready);}
   await ps[0].waitForFunction(()=>window.__room.members.every(m=>m.ready));await click(ps[0],180,66+80+ps.length*58+12+60+24);await ps[0].waitForFunction(()=>window.__room.court||window.__room.reverie);
  }
- // Court: original vectors, a challenge, then a complete two-player match.
+ // Coupe: original vectors, a challenge, then a complete two-player match.
  const alice=await page('court','Alice');const code=(await room(alice)).code;const bob=await page('court','Bob',code);await lobby([alice,bob]);await wait(alice,'turn');
  let a=await room(alice);assert(a.court.players[0].cards.every(c=>c.role));assert(a.court.players[1].cards.every(c=>c.role===null));
  await click(alice,100,472);await wait(bob,'response');await click(bob,288,414);await wait(alice,'loss');a=await room(alice);const loser=a.court.choices.length?alice:bob;await click(loser,100,414);await wait(alice,'turn');
@@ -28,7 +28,7 @@ const url=process.env.JARCADE_QA_URL||'http://127.0.0.1:8091';
   else if(state.phase==='loss'){const p=(await room(alice)).court.choices.length?alice:bob;await click(p,100,414);}
   else {throw new Error(`Unexpected phase ${state.phase}`);}
  }
- // Reverie: 3-player variant, real previews/selection, scoring and full game.
+ // Dicksit: 3-player variant, real previews/selection, scoring and full game.
  const mia=await page('reverie','Mia');const rc=(await room(mia)).code;const noah=await page('reverie','Noah',rc);const ava=await page('reverie','Ava',rc);const ps=[mia,noah,ava];await lobby(ps);await wait(mia,'story');assert.equal((await room(mia)).reverie.hand.length,7);
  async function choose(p,index,phase){const r=await room(p);const v=r.reverie;await p.mouse.move(180,500);await p.mouse.wheel(0,-10000);await p.waitForTimeout(50);
   // Derive actual gallery start: 64 + 2*34 + 8 + 98 = 238.
@@ -39,7 +39,7 @@ const url=process.env.JARCADE_QA_URL||'http://127.0.0.1:8091';
  }
  let rounds=0;
  while((await room(mia)).reverie.phase!=='finished'){
-  assert(++rounds<35);console.log(`Reverie round ${rounds}`);let r=await room(mia);let v=r.reverie;const teller=ps[v.storyteller];
+  assert(++rounds<35);console.log(`Dicksit round ${rounds}`);let r=await room(mia);let v=r.reverie;const teller=ps[v.storyteller];
   await teller.waitForFunction(()=>document.querySelector("canvas").getAttribute("aria-label").includes("story"));await teller.waitForTimeout(150);
   await teller.mouse.click(180,200);await teller.locator('#jarcade-text-editor').fill(`A light in the dark ${rounds}`);await teller.locator('#jarcade-text-editor').press('Enter');
   const secret=(await room(teller)).reverie.hand[0];await choose(teller,0,'story');await click(teller,150,800);await wait(mia,'submit');
@@ -57,6 +57,6 @@ const url=process.env.JARCADE_QA_URL||'http://127.0.0.1:8091';
   if(r.reverie.phase!=='finished'){for(const p of ps)await click(p,150,800);await wait(mia,'story');}
  }
  assert.equal(errors.length,0,errors.join('\n'));
- console.log(`Court complete; Reverie complete in ${rounds} rounds; separate sessions, hidden cards/votes, previews, reload/resume, idle rendering verified.`);
+ console.log(`Coupe complete; Dicksit complete in ${rounds} rounds; separate sessions, hidden cards/votes, previews, reload/resume, idle rendering verified.`);
  await browser.close();
 })().catch(async e=>{console.error(e);for(let i=0;i<debugPages.length;i++){const p=debugPages[i];try{await p.screenshot({path:`/tmp/jarcade-online-failure-${i}.png`});console.log(i,await p.locator("canvas").getAttribute("aria-label"));}catch{}}process.exit(1);});

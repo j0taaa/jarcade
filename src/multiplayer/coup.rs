@@ -216,7 +216,7 @@ pub struct View {
 impl Game {
     pub fn new(names: Vec<String>, seed: u64) -> Result<Self, &'static str> {
         if !(2..=6).contains(&names.len()) {
-            return Err("Court needs 2–6 players");
+            return Err("Coupe needs 2–6 players");
         }
         let mut rng = Rng::new(seed);
         let mut deck = Role::ALL.repeat(3);

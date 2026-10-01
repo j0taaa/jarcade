@@ -180,11 +180,11 @@ impl Room {
             }
             Command::Court(movement) => match &mut self.board {
                 Some(Match::Court(g)) => g.play(you, movement)?,
-                _ => return Err("This is not an active Court game"),
+                _ => return Err("This is not an active Coupe game"),
             },
             Command::Reverie(movement) => match &mut self.board {
                 Some(Match::Reverie(g)) => g.play(you, movement)?,
-                _ => return Err("This is not an active Reverie game"),
+                _ => return Err("This is not an active Dicksit game"),
             },
             _ => return Err("That option is not available"),
         }

@@ -13,8 +13,8 @@ pub enum GameKind {
 impl GameKind {
     pub fn title(self) -> &'static str {
         match self {
-            Self::Court => "Court",
-            Self::Reverie => "Reverie",
+            Self::Court => "Coupe",
+            Self::Reverie => "Dicksit",
         }
     }
     pub fn limits(self) -> (usize, usize) {

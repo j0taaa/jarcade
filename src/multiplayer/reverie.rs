@@ -75,7 +75,7 @@ impl Game {
     pub fn new(names: Vec<String>, seed: u64) -> Result<Self, &'static str> {
         let n = names.len();
         if !(3..=8).contains(&n) {
-            return Err("Reverie needs 3–8 players");
+            return Err("Dicksit needs 3–8 players");
         }
         let mut rng = Rng::new(seed);
         let mut deck: Vec<_> = (0..CARD_COUNT).collect();
