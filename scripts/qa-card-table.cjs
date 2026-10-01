@@ -26,7 +26,7 @@ const base=process.env.JARCADE_QA_URL||'http://127.0.0.1:8091';
     await new Promise(resolve=>setTimeout(resolve,100));return code;
   });
   await page.goto(`${base}/?game=reverie&room=${code}`);await page.waitForFunction(()=>!document.getElementById('loading'));
-  await page.mouse.click(190,518);
+  await page.mouse.click(190,645);
   await page.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Round 1'));
   await page.waitForTimeout(1000);
   for(const[width,height]of[[390,844],[568,320],[280,360],[768,1024],[1440,900]]){
@@ -34,7 +34,7 @@ const base=process.env.JARCADE_QA_URL||'http://127.0.0.1:8091';
     await page.screenshot({path:`/tmp/jarcade-eight-${width}x${height}.png`});
   }
   await page.setViewportSize({width:568,height:320});await page.waitForTimeout(150);
-  await page.mouse.click(110,218);await page.waitForTimeout(100);
+  await page.mouse.click(110,248);await page.waitForTimeout(100);
   await page.screenshot({path:'/tmp/jarcade-long-clue.png'});
   await page.keyboard.press('Escape');await page.waitForTimeout(100);
   assert((await page.locator('canvas').getAttribute('aria-label')).includes('Round 1'));

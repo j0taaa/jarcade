@@ -301,6 +301,13 @@ Leave explicitly removes a lobby seat, forfeits Coupe, or ends a Dicksit match.
 The host can open a rematch. Offline players retain their seats until they
 reconnect or leave; turn decisions have no automatic timeout.
 
+Coupe uses a woodland table, coin chips, secret influence cards and role-colored
+action tiles. On wide displays the hand and actions sit side by side. Dicksit
+uses a lilac picture gallery with framed art, numbered cards, selection seals
+and a clue/round ribbon. Room codes appear as shareable tickets; waiting rooms
+use player tokens and open seats. Both keep a white canvas, true-black power
+saver, touch and keyboard controls, and event-driven rendering when idle.
+
 **Coupe** (2–6 players) uses Coup's base seven actions, role powers, challenges,
 blocks, exchanges, forced coups at ten coins, and influence elimination. Its
 original woodland portraits are drawn as Rust vectors. Regent = Duke,

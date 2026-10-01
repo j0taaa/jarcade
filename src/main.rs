@@ -5,6 +5,7 @@ mod fih_view;
 mod game_view;
 mod mines_view;
 mod online_net;
+mod online_style;
 mod online_view;
 mod platform;
 mod ui;

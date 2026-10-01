@@ -11,3 +11,4 @@
 - Keep game rules separate from rendering and test gameplay, edge cases, and regressions. Run formatting, linting, tests, and relevant builds before finishing changes; state platform verification limits honestly.
 
 - Coupe and Dicksit are online room-code multiplayer games with original art. Keep rules in `src/multiplayer`, validate moves on the room server, never expose other hands or unrevealed votes, preserve reconnect seats, and leave static multiplayer screens event-driven. Dicksit uses the 84 generated illustrations in `assets/reverie`; Fih stays SVG/code.
+- Keep multiplayer playful and minimal: Coupe is a woodland card table with coin chips and role-colored actions; Dicksit is a lilac dream gallery with framed pictures and a clear clue. Avoid generic form-like game screens and decorative clutter.

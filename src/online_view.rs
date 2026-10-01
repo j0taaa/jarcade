@@ -2,6 +2,7 @@
 use crate::{
     card_art::{self, DeckArt},
     online_net::Network,
+    online_style::{self as style, primary},
     platform,
     ui::{CORAL, Icon, Ui, bordered, rounded},
 };
@@ -290,12 +291,25 @@ impl OnlinePage {
         } else {
             text.push_str("Create a room or join using a room code.");
         }
+        if self.confirm_leave {
+            text.push_str(" Leave this table? Stay or Leave.");
+        } else if self.help {
+            text.push_str(" Rules are open.");
+        } else if self.clue_open {
+            text.push_str(" Full clue is open.");
+        } else if self.preview.is_some() {
+            text.push_str(" Card preview is open.");
+        }
+        if !self.selected.is_empty() {
+            text.push_str(&format!(" {} cards selected.", self.selected.len()));
+        }
         if !self.error.is_empty() {
             text.push_str(&self.error);
         }
         text
     }
     pub fn back(&mut self) -> bool {
+        self.revision += 1;
         if self.clue_open {
             self.clue_open = false;
             self.pan = BoardPan::default();
@@ -369,25 +383,42 @@ impl OnlinePage {
         }
     }
     pub fn draw(&mut self, ui: &mut Ui, press: Option<Vec2>) -> bool {
-        let width = (screen_width() - 24.).min(1100.);
+        let back = self.draw_page(ui, press);
+        if ui.activated {
+            self.revision += 1;
+        }
+        back
+    }
+    fn draw_page(&mut self, ui: &mut Ui, press: Option<Vec2>) -> bool {
+        let (accent, panel, line) = style::palette(self.game, ui.theme.saver);
+        ui.theme.accent = accent;
+        ui.theme.panel = panel;
+        ui.theme.line = line;
+        let width = (screen_width() - 32.).min(1100.);
         let x = (screen_width() - width) / 2.;
         let header = Rect::new(x, 8., width, 44.);
         if ui.icon_button(Icon::Back, Rect::new(x, 8., 44., 44.), false) && self.back() {
             return true;
         }
-        let heading = if let Some(room) = &self.room {
-            format!("{}  ·  {}", self.game.title(), room.code)
-        } else {
-            self.game.title().into()
-        };
+        style::emblem(self.game, vec2(x + 64., 29.), 10., ui.theme.accent);
         fit(
             ui,
-            &heading,
-            Rect::new(x + 56., 8., width - 156., 44.),
-            20.,
+            self.game.title(),
+            Rect::new(x + 80., 7., width - 180., 28.),
+            21.,
             ui.theme.text,
             true,
         );
+        if let Some(room) = &self.room {
+            fit(
+                ui,
+                &room.code,
+                Rect::new(x + 80., 32., width - 180., 16.),
+                11.,
+                ui.theme.muted,
+                true,
+            );
+        }
         if ui.button("?", Rect::new(header.right() - 44., 8., 44., 44.), false) {
             self.help = !self.help;
             self.pan = BoardPan::default();
@@ -496,83 +527,156 @@ impl OnlinePage {
         false
     }
     fn draw_join(&mut self, ui: &mut Ui, press: Option<Vec2>, x: f32, width: f32) {
-        let w = width.min(440.);
-        let x = x + (width - w) / 2.;
-        let top = if screen_height() < 600. { 70. } else { 112. };
-        let illustration = Rect::new(x, top, w, 80.);
-        if screen_height() > 650. {
-            if self.game == GameKind::Court {
-                card_art::preview(
-                    ui,
-                    Rect::new(illustration.center().x - 72., top, 144., 110.),
-                );
-            } else {
-                self.art.preview(
-                    ui,
-                    Rect::new(illustration.center().x - 72., top, 144., 110.),
-                );
-            }
-        }
-        let short = screen_height() <= 650.;
-        let viewport = Rect::new(x, 66., w, screen_height() - 82.);
-        let (y, press) = if short {
-            let (origin, tap) = page_input(
-                &mut self.pan,
-                &mut self.blocked_touch,
-                press,
-                viewport,
-                380.,
-            );
-            clip(Some(viewport));
-            (origin.y + 10., tap)
+        let wide = width >= 800.;
+        let compact = screen_height() < 650.;
+        let w = if wide { 400. } else { width.min(440.) };
+        let form_x = if wide {
+            x + width * 0.54
         } else {
-            (top + 138., press)
+            x + (width - w) / 2.
         };
-        let original_pointer = if short {
-            ui.override_pointer(press)
+        let hero_h = if wide {
+            360.
+        } else if compact {
+            146.
         } else {
-            None
+            248.
         };
-        let (min, max) = self.game.limits();
-        ui.centered(
-            &format!("Online · {min}–{max} players"),
-            Rect::new(x, y, w, 30.),
-            15.,
-            ui.theme.muted,
-            false,
+        let total = if wide { 510. } else { hero_h + 390. };
+        let viewport = Rect::new(x, 66., width, screen_height() - 82.);
+        let (origin, tap) = page_input(
+            &mut self.pan,
+            &mut self.blocked_touch,
+            press,
+            viewport,
+            total,
         );
-        self.field(ui, 0, Rect::new(x, y + 42., w, 50.), "Your name", press);
+        let original_pointer = ui.override_pointer(tap);
+        clip(Some(viewport));
+        let hero = if wide {
+            Rect::new(x, origin.y + 40., width * 0.47, hero_h)
+        } else {
+            Rect::new(form_x, origin.y, w, hero_h)
+        };
+        let art_h = if compact && !wide {
+            76.
+        } else if wide {
+            200.
+        } else {
+            138.
+        };
+        let art_w = art_h * 1.7;
+        let art = Rect::new(hero.center().x - art_w / 2., hero.y + 10., art_w, art_h);
+        if !ui.theme.saver {
+            rounded(
+                Rect::new(art.x - 16., art.y + 8., art.w + 32., art.h - 8.),
+                art_h * 0.45,
+                ui.theme.panel,
+            );
+            style::spark(vec2(art.x + 12., art.y + 18.), 8., ui.theme.accent);
+            style::spark(
+                vec2(art.right() - 4., art.bottom() - 20.),
+                5.,
+                ui.theme.accent,
+            );
+        }
+        if self.game == GameKind::Court {
+            card_art::preview(ui, art);
+        } else {
+            self.art.preview(ui, art);
+        }
+        let title_y = art.bottom() + 12.;
+        ui.centered(
+            self.game.title(),
+            Rect::new(hero.x, title_y, hero.w, if compact { 32. } else { 48. }),
+            if compact { 28. } else { 40. },
+            ui.theme.text,
+            true,
+        );
+        let tagline = if self.game == GameKind::Court {
+            "A little charm. A lot of bluff."
+        } else {
+            "One picture. A thousand stories."
+        };
+        if !compact || wide {
+            ui.centered(
+                tagline,
+                Rect::new(hero.x, title_y + 51., hero.w, 24.),
+                14.,
+                ui.theme.muted,
+                false,
+            );
+        }
+        let y = origin.y + if wide { 64. } else { hero_h };
+        bordered(
+            Rect::new(
+                form_x,
+                y,
+                w,
+                if self.session().is_some() { 384. } else { 320. },
+            ),
+            24.,
+            ui.theme.line,
+            ui.theme.bg,
+        );
+        let fx = form_x + 20.;
+        let fw = w - 40.;
+        ui.label("YOUR NAME", fx, y + 28., 11., ui.theme.muted);
+        self.field(
+            ui,
+            0,
+            Rect::new(fx, y + 40., fw, 50.),
+            "What should we call you?",
+            tap,
+        );
         let enabled = !self.fields[0].is_empty() && !self.connecting;
-        if ui.button(
+        if primary(
+            ui,
             if self.connecting {
                 "Connecting…"
             } else {
-                "Create room"
+                "Create a table"
             },
-            Rect::new(x, y + 104., w, 50.),
+            Rect::new(fx, y + 104., fw, 52.),
             enabled,
-        ) && enabled
-        {
+        ) {
             self.persist();
             self.connect(ClientMessage::Create {
                 game: self.game,
                 name: self.fields[0].clone(),
             });
         }
+        let (min, max) = self.game.limits();
+        ui.centered(
+            &format!("{min}–{max} friends · online"),
+            Rect::new(fx, y + 163., fw, 22.),
+            12.,
+            ui.theme.muted,
+            false,
+        );
+        let mid = fx + fw / 2.;
+        draw_line(fx, y + 207., mid - 58., y + 207., 1., ui.theme.line);
+        draw_line(mid + 58., y + 207., fx + fw, y + 207., 1., ui.theme.line);
+        ui.centered(
+            "or join friends",
+            Rect::new(mid - 56., y + 194., 112., 24.),
+            11.,
+            ui.theme.muted,
+            false,
+        );
         self.field(
             ui,
             1,
-            Rect::new(x, y + 178., w - 114., 50.),
+            Rect::new(fx, y + 231., fw - 88., 50.),
             "Room code",
-            press,
+            tap,
         );
-        if ui.button(
+        if primary(
+            ui,
             "Join",
-            Rect::new(x + w - 104., y + 178., 104., 50.),
-            enabled,
-        ) && enabled
-            && self.fields[1].len() == 6
-        {
+            Rect::new(fx + fw - 78., y + 231., 78., 50.),
+            enabled && self.fields[1].len() == 6,
+        ) {
             self.persist();
             self.connect(ClientMessage::Join {
                 room: self.fields[1].clone(),
@@ -581,26 +685,17 @@ impl OnlinePage {
         }
         if let Some(session) = self.session().cloned()
             && ui.button(
-                &format!("Resume {}", session.room),
-                Rect::new(x, y + 244., w, 48.),
+                &format!("Back to {}", session.room),
+                Rect::new(fx, y + 307., fw, 48.),
                 false,
             )
             && !self.connecting
         {
             self.reconnect();
         }
-        if short {
-            clip(None);
-            ui.override_pointer(original_pointer);
-        }
-        wrap(
-            ui,
-            &self.error,
-            Rect::new(x, y + 306., w, (screen_height() - y - 322.).max(48.)),
-            14.,
-            CORAL,
-            false,
-        );
+        clip(None);
+        ui.override_pointer(original_pointer);
+        self.error_banner(ui, x, width);
     }
     fn draw_lobby(
         &mut self,
@@ -610,72 +705,139 @@ impl OnlinePage {
         x: f32,
         width: f32,
     ) {
-        let cols = if width > 650. { 2 } else { 1 };
-        let height = 80. + room.members.len().div_ceil(cols) as f32 * 58. + 180.;
+        let original_width = width;
+        let width = width.min(720.);
+        let x = x + (original_width - width) / 2.;
+        let cols = if width >= 340. { 2 } else { 1 };
+        let count = room.members.len().max(self.game.limits().0);
+        let row_h = if cols == 2 { 94. } else { 68. };
+        let roster_h = count.div_ceil(cols) as f32 * row_h;
+        let total = 158. + roster_h + 196.;
         let viewport = Rect::new(x, 66., width, screen_height() - 82.);
         let (origin, tap) = page_input(
             &mut self.pan,
             &mut self.blocked_touch,
             press,
             viewport,
-            height,
+            total,
         );
         clip(Some(viewport));
+        let ticket = Rect::new(x, origin.y + 4., width, 120.);
+        bordered(ticket, 24., ui.theme.line, ui.theme.panel);
         ui.centered(
-            "Invite your friends",
-            Rect::new(x, origin.y + 2., width, 30.),
-            22.,
-            ui.theme.text,
+            "YOUR TABLE",
+            Rect::new(x, ticket.y + 12., width, 20.),
+            10.,
+            ui.theme.muted,
             true,
         );
+        let code_w = (width - 48.).min(264.);
+        let cell = code_w / 6.;
+        let code_x = ticket.center().x - code_w / 2.;
+        for (i, c) in room.code.chars().enumerate() {
+            let r = Rect::new(code_x + i as f32 * cell, ticket.y + 38., cell - 5., 38.);
+            rounded(r, 9., ui.theme.bg);
+            ui.centered(&c.to_string(), r, 23., ui.theme.accent, true);
+        }
         ui.centered(
-            &format!(
-                "Room {} · {}–{} players",
-                room.code,
-                self.game.limits().0,
-                self.game.limits().1
-            ),
-            Rect::new(x, origin.y + 36., width, 24.),
-            15.,
+            "Share the code. Pull up a seat.",
+            Rect::new(x, ticket.y + 84., width, 24.),
+            13.,
             ui.theme.muted,
             false,
         );
-        for (i, m) in room.members.iter().enumerate() {
-            let rect = Rect::new(
-                x + (i % cols) as f32 * (width / cols as f32),
-                origin.y + 80. + (i / cols) as f32 * 58.,
-                width / cols as f32 - 8.,
-                50.,
+        for side in [x, x + width] {
+            draw_circle(side, ticket.center().y, 7., ui.theme.bg);
+        }
+        let gap = 10.;
+        let sw = (width - gap * (cols - 1) as f32) / cols as f32;
+        for i in 0..count {
+            let r = Rect::new(
+                x + (i % cols) as f32 * (sw + gap),
+                origin.y + 146. + (i / cols) as f32 * row_h,
+                sw,
+                row_h - 10.,
             );
-            bordered(rect, 14., ui.theme.line, ui.theme.panel);
-            fit(
-                ui,
-                &format!("{}{}", m.name, if i == room.you { " · you" } else { "" }),
-                Rect::new(rect.x + 14., rect.y, rect.w - 112., 50.),
-                16.,
-                ui.theme.text,
-                true,
-            );
-            fit(
-                ui,
-                if !m.connected {
+            bordered(r, 18., ui.theme.line, ui.theme.bg);
+            if let Some(m) = room.members.get(i) {
+                let avatar = vec2(r.x + 27., r.y + 25.);
+                style::avatar(ui, &m.name, i, avatar, 17.);
+                fit(
+                    ui,
+                    &m.name,
+                    Rect::new(r.x + 51., r.y + 9., r.w - 59., 24.),
+                    14.,
+                    ui.theme.text,
+                    true,
+                );
+                if cols == 2 {
+                    ui.label(
+                        if i == room.you {
+                            "YOU"
+                        } else if i == room.host {
+                            "HOST"
+                        } else {
+                            "PLAYER"
+                        },
+                        r.x + 16.,
+                        r.y + 65.,
+                        9.,
+                        ui.theme.muted,
+                    );
+                }
+                let status = if !m.connected {
                     "Offline"
                 } else if m.ready {
                     "Ready"
                 } else {
-                    "Waiting"
-                },
-                Rect::new(rect.right() - 88., rect.y, 76., 50.),
-                13.,
-                ui.theme.muted,
-                false,
-            );
+                    "Getting ready"
+                };
+                let sy = if cols == 2 { r.y + 51. } else { r.y + 31. };
+                fit(
+                    ui,
+                    status,
+                    Rect::new(
+                        r.x + if cols == 2 { r.w * 0.34 } else { 51. },
+                        sy,
+                        if cols == 2 {
+                            r.w * 0.64 - 10.
+                        } else {
+                            r.w - 60.
+                        },
+                        20.,
+                    ),
+                    11.,
+                    if m.ready {
+                        ui.theme.accent
+                    } else {
+                        ui.theme.muted
+                    },
+                    m.ready,
+                );
+                if m.ready {
+                    style::check(vec2(r.right() - 15., r.y + 16.), 6., ui.theme.accent);
+                }
+            } else {
+                draw_circle_lines(r.x + 27., r.y + 25., 16., 1., ui.theme.line);
+                fit(
+                    ui,
+                    "Open seat",
+                    Rect::new(r.x + 49., r.y + 10., r.w - 57., 24.),
+                    13.,
+                    ui.theme.muted,
+                    false,
+                );
+            }
         }
-        let y = origin.y + 80. + room.members.len().div_ceil(cols) as f32 * 58. + 12.;
+        let y = origin.y + 146. + roster_h + 8.;
         let me = &room.members[room.you];
         if button(
             ui,
-            if me.ready { "Not ready" } else { "Ready" },
+            if me.ready {
+                "✓  Ready"
+            } else {
+                "I’m ready"
+            },
             Rect::new(x, y, width, 48.),
             !me.ready,
             tap,
@@ -683,21 +845,31 @@ impl OnlinePage {
         ) {
             self.play(Command::Ready(!me.ready));
         }
-        if room.host == room.you
-            && button(
+        if room.host == room.you {
+            let can_start = room.members.len() >= self.game.limits().0
+                && room.members.iter().all(|m| m.ready && m.connected);
+            let pointer = ui.override_pointer(tap);
+            if primary(
                 ui,
-                "Start game",
+                "Let’s play",
                 Rect::new(x, y + 60., width, 48.),
-                true,
-                tap,
-                viewport,
-            )
-        {
-            self.play(Command::Start);
+                can_start,
+            ) {
+                self.play(Command::Start);
+            }
+            ui.override_pointer(pointer);
+        } else {
+            ui.centered(
+                "The host starts when everyone is ready",
+                Rect::new(x, y + 60., width, 36.),
+                12.,
+                ui.theme.muted,
+                false,
+            );
         }
         if button(
             ui,
-            "Leave room",
+            "Leave table",
             Rect::new(x, y + 120., width, 44.),
             false,
             tap,
@@ -769,10 +941,17 @@ impl OnlinePage {
             }
             return;
         }
-        let cols = if width >= 700. { 3 } else { 2 };
+        let desktop = width >= 800.;
+        let cols = if desktop { 3 } else { 2 };
         let rowh = 70.;
         let scores = g.players.len().div_ceil(cols) as f32 * rowh;
-        let handh = if screen_height() < 600. { 128. } else { 182. };
+        let handh: f32 = if desktop {
+            240.
+        } else if screen_height() < 600. {
+            128.
+        } else {
+            156.
+        };
         let actions = if self.target.is_some() {
             g.players.len()
         } else if !g.exchange.is_empty() {
@@ -780,10 +959,22 @@ impl OnlinePage {
         } else {
             g.actions.len().max(g.choices.len()).max(1)
         };
-        let gridcols = if width >= 700. { 3 } else { 2 };
-        let actionheight = actions.div_ceil(gridcols) as f32 * 58.;
-        let logs = 96.;
-        let total = scores + 50. + handh + 38. + actionheight + logs + 68.;
+        let gridcols = 2;
+        let actionheight = actions.div_ceil(gridcols) as f32 * 66.;
+        let hand_width = if desktop { width * 0.45 } else { width };
+        let action_x = if desktop { x + hand_width + 28. } else { x };
+        let action_width = if desktop {
+            width - hand_width - 28.
+        } else {
+            width
+        };
+        let total = scores
+            + 76.
+            + if desktop {
+                handh.max(actionheight) + 216.
+            } else {
+                handh + actionheight + 226.
+            };
         let viewport = Rect::new(x, 66., width, screen_height() - 82.);
         let (origin, tap) = page_input(
             &mut self.pan,
@@ -800,34 +991,40 @@ impl OnlinePage {
                 width / cols as f32 - 8.,
                 60.,
             );
+            let active = i == g.turn && g.winner.is_none();
             bordered(
                 rect,
-                14.,
-                if i == g.turn {
+                18.,
+                if active {
                     ui.theme.accent
                 } else {
                     ui.theme.line
                 },
-                ui.theme.panel,
+                if active { ui.theme.panel } else { ui.theme.bg },
             );
+            style::avatar(ui, &p.name, i, vec2(rect.x + 24., rect.y + 23.), 15.);
             fit(
                 ui,
-                &format!("{}{}", p.name, if i == room.you { " · you" } else { "" }),
-                Rect::new(rect.x + 10., rect.y + 4., rect.w - 48., 26.),
+                &p.name,
+                Rect::new(rect.x + 45., rect.y + 7., rect.w - 58., 24.),
                 14.,
                 ui.theme.text,
                 true,
             );
-            ui.label(
-                &format!("{} coins", p.coins),
-                rect.x + 10.,
+            style::coin(vec2(rect.x + 50., rect.y + 44.), 6.);
+            ui.heading(
+                &p.coins.to_string(),
+                rect.x + 61.,
                 rect.y + 48.,
                 12.,
-                ui.theme.muted,
+                ui.theme.text,
             );
+            if i == room.you {
+                ui.label("YOU", rect.x + 12., rect.y + 52., 8., ui.theme.muted);
+            }
             for (j, c) in p.cards.iter().enumerate() {
-                let r = Rect::new(rect.right() - 42. + j as f32 * 17., rect.y + 34., 12., 17.);
-                rounded(
+                let r = Rect::new(rect.right() - 42. + j as f32 * 17., rect.y + 36., 12., 17.);
+                bordered(
                     r,
                     3.,
                     if c.revealed {
@@ -835,10 +1032,18 @@ impl OnlinePage {
                     } else {
                         ui.theme.accent
                     },
+                    if c.revealed {
+                        ui.theme.bg
+                    } else {
+                        ui.theme.accent
+                    },
                 );
+                if !c.revealed {
+                    style::spark(r.center(), 3., if ui.theme.saver { BLACK } else { WHITE });
+                }
             }
             if !room.members[i].connected {
-                draw_circle(rect.right() - 12., rect.y + 14., 3., CORAL);
+                draw_circle(rect.right() - 10., rect.y + 10., 3., CORAL);
             }
             if rect.overlaps(&viewport)
                 && (tap.is_some_and(|point| rect.contains(point)) || ui.keyboard_hit(rect))
@@ -847,12 +1052,26 @@ impl OnlinePage {
                 ui.activated = true;
             }
         }
-        let y = origin.y + scores + 8.;
+        let y = origin.y + scores + 4.;
+        let banner = Rect::new(x, y, width, 56.);
+        rounded(banner, 18., ui.theme.panel);
+        let my_move = !g.actions.is_empty() || !g.choices.is_empty() || !g.exchange.is_empty();
+        let phase = if g.winner.is_some() {
+            "THE CROWN IS CLAIMED"
+        } else if my_move {
+            "YOUR MOVE"
+        } else {
+            "AT THE TABLE"
+        };
+        ui.label(phase, x + 16., y + 17., 9., ui.theme.accent);
+        let prompt = self
+            .target
+            .map(|action| format!("Choose a target · {}", action.title()));
         fit(
             ui,
-            &g.prompt,
-            Rect::new(x, y, width, 38.),
-            20.,
+            prompt.as_deref().unwrap_or(&g.prompt),
+            Rect::new(x + 12., y + 23., width - 24., 27.),
+            16.,
             ui.theme.text,
             true,
         );
@@ -867,13 +1086,35 @@ impl OnlinePage {
         } else {
             g.players[room.you].cards.clone()
         };
-        let cw = (width / pool.len() as f32 - 10.).min(handh / 1.5);
-        let start = x + (width - (cw + 10.) * pool.len() as f32 + 10.) / 2.;
+        let hand_y = y + 68.;
+        let table = Rect::new(x, hand_y, hand_width, handh + 16.);
+        bordered(table, 28., ui.theme.line, ui.theme.panel);
+        let cw = ((hand_width - 32.) / pool.len() as f32 - 10.).min(handh / 1.5);
+        let ch = cw * 1.5;
+        let start = x + (hand_width - (cw + 10.) * pool.len() as f32 + 10.) / 2.;
         for (i, c) in pool.iter().enumerate() {
-            let r = Rect::new(start + i as f32 * (cw + 10.), y + 48., cw, handh);
+            let r = Rect::new(
+                start + i as f32 * (cw + 10.),
+                hand_y + 8. + (handh - ch) / 2.,
+                cw,
+                ch,
+            );
+            if !ui.theme.saver {
+                rounded(Rect::new(r.x, r.y + 3., r.w, r.h), 12., ui.theme.line);
+            }
             card_art::court_card(ui, r, c.role, c.revealed, false);
             if self.exchange.contains(&i) {
-                draw_rectangle_lines(r.x - 2., r.y - 2., r.w + 4., r.h + 4., 3., ui.theme.accent);
+                bordered(
+                    Rect::new(r.right() - 23., r.y + 7., 18., 18.),
+                    9.,
+                    ui.theme.accent,
+                    ui.theme.accent,
+                );
+                style::check(
+                    vec2(r.right() - 14., r.y + 16.),
+                    7.,
+                    if ui.theme.saver { BLACK } else { WHITE },
+                );
             }
             if !g.exchange.is_empty()
                 && r.overlaps(&viewport)
@@ -887,13 +1128,28 @@ impl OnlinePage {
                 ui.activated = true;
             }
         }
-        let ay = y + 48. + handh + 16.;
+        ui.centered(
+            if g.exchange.is_empty() {
+                "Your secret influences"
+            } else {
+                "Choose the influences to keep"
+            },
+            Rect::new(x, table.bottom() + 4., hand_width, 24.),
+            11.,
+            ui.theme.muted,
+            false,
+        );
+        let ay = if desktop {
+            hand_y
+        } else {
+            table.bottom() + 38.
+        };
         let mut moves: Vec<(String, Option<Command>)> = vec![];
         if let Some(action) = self.target {
             for (i, p) in g.players.iter().enumerate() {
                 if i != room.you && p.cards.iter().any(|c| !c.revealed) {
                     moves.push((
-                        format!("{} → {}", action.title(), p.name),
+                        p.name.clone(),
                         Some(Command::Court(coup::Move::Act {
                             action,
                             target: Some(i),
@@ -942,14 +1198,49 @@ impl OnlinePage {
             moves.push(("Play again".into(), Some(Command::Rematch)));
         }
         for (i, (label, command)) in moves.iter().enumerate() {
-            let w = (width - 10. * (gridcols - 1) as f32) / gridcols as f32;
+            let w = (action_width - 10. * (gridcols - 1) as f32) / gridcols as f32;
             let r = Rect::new(
-                x + (i % gridcols) as f32 * (w + 10.),
-                ay + (i / gridcols) as f32 * 58.,
+                action_x + (i % gridcols) as f32 * (w + 10.),
+                ay + (i / gridcols) as f32 * 66.,
                 w,
-                48.,
+                56.,
             );
-            if button(ui, label, r, true, tap, viewport) {
+            let hit = if let Some(Command::Court(coup::Move::Act {
+                action,
+                target: None,
+            })) = command
+            {
+                style::action_tile(ui, *action, r, tap, viewport)
+            } else if let Some(Command::Court(coup::Move::Act {
+                target: Some(index),
+                ..
+            })) = command
+            {
+                bordered(r, 16., ui.theme.line, ui.theme.panel);
+                style::avatar(ui, label, *index, vec2(r.x + 23., r.center().y), 14.);
+                fit(
+                    ui,
+                    label,
+                    Rect::new(r.x + 44., r.y, r.w - 52., r.h),
+                    14.,
+                    ui.theme.text,
+                    true,
+                );
+                let hit = r.overlaps(&viewport)
+                    && (tap.is_some_and(|p| r.contains(p)) || ui.keyboard_hit(r));
+                ui.activated |= hit;
+                hit
+            } else {
+                button(
+                    ui,
+                    label,
+                    r,
+                    !matches!(command, None | Some(Command::Court(coup::Move::Pass))),
+                    tap,
+                    viewport,
+                )
+            };
+            if hit {
                 match command {
                     Some(Command::Court(coup::Move::Act {
                         action,
@@ -961,12 +1252,15 @@ impl OnlinePage {
                 };
             }
         }
-        let ly = ay + moves.len().max(1).div_ceil(gridcols) as f32 * 58. + 12.;
+        let ly = (ay + moves.len().max(1).div_ceil(gridcols) as f32 * 66.)
+            .max(table.bottom() + 32.)
+            + 16.;
+        ui.label("RECENT MOVES", x + 8., ly + 10., 9., ui.theme.muted);
         for (i, event) in g.log.iter().rev().take(3).enumerate() {
             fit(
                 ui,
                 event,
-                Rect::new(x, ly + i as f32 * 26., width, 24.),
+                Rect::new(x, ly + 20. + i as f32 * 26., width, 24.),
                 12.,
                 ui.theme.muted,
                 false,
@@ -975,7 +1269,7 @@ impl OnlinePage {
         if button(
             ui,
             "Leave table",
-            Rect::new(x, ly + 88., width, 44.),
+            Rect::new(x + (width - 140.) / 2., ly + 108., 140., 44.),
             false,
             tap,
             viewport,
@@ -1017,7 +1311,7 @@ impl OnlinePage {
             2
         };
         let sw = (side - 6. * (cols - 1) as f32) / cols as f32;
-        let rh = if short { 24. } else { 34. };
+        let rh = if short { 24. } else { 40. };
         for (i, p) in g.players.iter().enumerate() {
             let r = Rect::new(
                 x + (i % cols) as f32 * (sw + 6.),
@@ -1025,32 +1319,107 @@ impl OnlinePage {
                 sw,
                 rh - 6.,
             );
-            rounded(r, 9., ui.theme.panel);
-            let label = format!(
-                "{}{}  {}{}",
-                p.name,
-                if i == room.you { " · you" } else { "" },
-                p.score,
-                if p.gained > 0 {
-                    format!(" +{}", p.gained)
-                } else {
-                    String::new()
-                }
-            );
-            fit(
-                ui,
-                &label,
-                Rect::new(r.x + 8., r.y, r.w - 16., r.h),
+            let teller = i == g.storyteller;
+            bordered(
+                r,
                 12.,
-                if i == g.storyteller {
+                if teller {
                     ui.theme.accent
                 } else {
-                    ui.theme.text
+                    ui.theme.line
                 },
-                i == g.storyteller,
+                if teller { ui.theme.panel } else { ui.theme.bg },
+            );
+            let left = if short { 6. } else { 30. };
+            if !short {
+                if teller {
+                    style::spark(vec2(r.x + 15., r.center().y), 7., ui.theme.accent);
+                } else {
+                    style::avatar(ui, &p.name, i, vec2(r.x + 15., r.center().y), 10.);
+                }
+            }
+            let compact_name = if short && sw < 90. {
+                format!("{}{}", p.name.chars().next().unwrap_or('?'), i + 1)
+            } else {
+                p.name.clone()
+            };
+            fit(
+                ui,
+                &compact_name,
+                Rect::new(r.x + left, r.y, r.w - left - 34., r.h),
+                if short { 10. } else { 12. },
+                ui.theme.text,
+                teller,
+            );
+            let score = if p.gained > 0 {
+                format!("{} +{}", p.score, p.gained)
+            } else {
+                p.score.to_string()
+            };
+            fit(
+                ui,
+                &score,
+                Rect::new(r.right() - 38., r.y, 33., r.h),
+                if short { 11. } else { 14. },
+                ui.theme.accent,
+                true,
+            );
+            if p.done && !teller {
+                style::check(vec2(r.right() - 4., r.y + 4.), 4., ui.theme.accent);
+            }
+        }
+        let progress_y = 64. + g.players.len().div_ceil(cols) as f32 * rh + 6.;
+        let step = match g.phase.as_str() {
+            "story" => 0,
+            "submit" => 1,
+            "vote" => 2,
+            _ => 3,
+        };
+        let round_w = if short { 40. } else { 58. };
+        ui.centered(
+            &format!("R{}", g.round),
+            Rect::new(x, progress_y, round_w, 24.),
+            12.,
+            ui.theme.accent,
+            true,
+        );
+        let pw = (side - round_w - 6.) / 3.;
+        for (i, label) in ["Clue", "Cards", if step == 3 { "Reveal" } else { "Vote" }]
+            .iter()
+            .enumerate()
+        {
+            let r = Rect::new(
+                x + round_w + i as f32 * pw,
+                progress_y,
+                (pw - 4.).max(16.),
+                24.,
+            );
+            rounded(
+                r,
+                12.,
+                if i == step.min(2) {
+                    ui.theme.panel
+                } else {
+                    ui.theme.bg
+                },
+            );
+            if i == step.min(2) && r.w > 60. {
+                draw_circle(r.x + 8., r.center().y, 2., ui.theme.accent);
+            }
+            fit(
+                ui,
+                label,
+                Rect::new(r.x + 6., r.y, r.w - 12., r.h),
+                10.,
+                if i == step.min(2) {
+                    ui.theme.accent
+                } else {
+                    ui.theme.muted
+                },
+                i == step.min(2),
             );
         }
-        let top = 64. + g.players.len().div_ceil(cols) as f32 * rh + 8.;
+        let top = progress_y + if short { 30. } else { 38. };
         let status = match g.phase.as_str() {
             "story" => {
                 if g.can_play {
@@ -1108,19 +1477,40 @@ impl OnlinePage {
             );
             top + clue_offset + 60.
         } else if !g.clue.is_empty() {
-            wrap(
-                ui,
-                &format!("“{}”", g.clue),
-                Rect::new(x, top + clue_offset, side, 54.),
-                if short { 14. } else { 17. },
-                ui.theme.accent,
-                true,
-            );
-            if ui.hit(Rect::new(x, top + clue_offset, side, 54.)) {
+            let clue = Rect::new(x, top + clue_offset, side, 54.);
+            bordered(clue, 16., ui.theme.line, ui.theme.panel);
+            let text = format!("“{}”", g.clue);
+            let size = if short { 13. } else { 16. };
+            if ui.text_width(&text, size, true) <= clue.w - 36. {
+                ui.centered(
+                    &text,
+                    Rect::new(clue.x + 14., clue.y, clue.w - 28., clue.h),
+                    size,
+                    ui.theme.accent,
+                    true,
+                );
+            } else {
+                wrap(
+                    ui,
+                    &text,
+                    Rect::new(clue.x + 14., clue.y + 2., clue.w - 38., clue.h - 4.),
+                    size,
+                    ui.theme.accent,
+                    true,
+                );
+                ui.label(
+                    "↗",
+                    clue.right() - 18.,
+                    clue.bottom() - 8.,
+                    10.,
+                    ui.theme.accent,
+                );
+            }
+            if ui.hit(clue) {
                 self.clue_open = true;
                 self.pan = BoardPan::default();
             }
-            top + clue_offset + 60.
+            top + clue_offset + 66.
         } else {
             top + if short { 30. } else { 42. }
         };
@@ -1170,14 +1560,55 @@ impl OnlinePage {
             if !r.overlaps(&viewport) {
                 continue;
             }
-            self.art.draw(ui, card, r);
             let table = g.table.iter().find(|c| c.card == card);
             let marked = self.selected.contains(&card) || g.vote == Some(card);
-            if marked {
-                draw_rectangle_lines(r.x - 2., r.y - 2., r.w + 4., r.h + 4., 3., ui.theme.accent);
+            let story = table.is_some_and(|c| c.story);
+            if !ui.theme.saver {
+                rounded(Rect::new(r.x, r.y + 3., r.w, r.h), 16., ui.theme.line);
             }
-            if table.is_some_and(|c| c.story) {
-                draw_rectangle_lines(r.x - 2., r.y - 2., r.w + 4., r.h + 4., 4., ui.theme.accent);
+            rounded(
+                r,
+                16.,
+                if marked || story {
+                    ui.theme.accent
+                } else {
+                    ui.theme.line
+                },
+            );
+            let frame = Rect::new(
+                r.x + if marked || story { 3. } else { 1. },
+                r.y + if marked || story { 3. } else { 1. },
+                r.w - if marked || story { 6. } else { 2. },
+                r.h - if marked || story { 6. } else { 2. },
+            );
+            rounded(frame, 14., ui.theme.bg);
+            self.art.draw(
+                ui,
+                card,
+                Rect::new(r.x + 7., r.y + 7., r.w - 14., r.h - 14.),
+            );
+            let token = vec2(r.x + 20., r.y + 20.);
+            draw_circle(
+                token.x,
+                token.y,
+                12.,
+                if ui.theme.saver { BLACK } else { WHITE },
+            );
+            ui.centered(
+                &(i + 1).to_string(),
+                Rect::new(token.x - 12., token.y - 12., 24., 24.),
+                11.,
+                ui.theme.accent,
+                true,
+            );
+            if marked || story {
+                let center = vec2(r.right() - 20., r.y + 20.);
+                draw_circle(center.x, center.y, 12., ui.theme.accent);
+                if story {
+                    style::spark(center, 7., if ui.theme.saver { BLACK } else { WHITE });
+                } else {
+                    style::check(center, 8., if ui.theme.saver { BLACK } else { WHITE });
+                }
             }
             let label = if let Some(owner) = table.and_then(|c| c.owner) {
                 format!(
@@ -1194,7 +1625,7 @@ impl OnlinePage {
             } else if marked {
                 "Selected".into()
             } else {
-                format!("{}", i + 1)
+                String::new()
             };
             fit(
                 ui,
@@ -1234,9 +1665,27 @@ impl OnlinePage {
             "Sending…"
         } else {
             match g.phase.as_str() {
-                "story" => "Tell story",
-                "submit" => "Submit cards",
-                "vote" => "Confirm vote",
+                "story" => {
+                    if g.can_play {
+                        "Tell story"
+                    } else {
+                        "A story is on its way…"
+                    }
+                }
+                "submit" => {
+                    if g.can_play {
+                        "Submit cards"
+                    } else {
+                        "Cards are on their way…"
+                    }
+                }
+                "vote" => {
+                    if g.can_play {
+                        "Confirm vote"
+                    } else {
+                        "Votes are on their way…"
+                    }
+                }
                 "results" => {
                     if g.can_play {
                         "Next round"
@@ -1262,10 +1711,16 @@ impl OnlinePage {
             "finished" => room.you == room.host,
             _ => false,
         };
-        if ui.button(
+        rounded(
+            Rect::new(gx - 4., bottom.y - 10., gw + 8., 78.),
+            20.,
+            ui.theme.bg,
+        );
+        if primary(
+            ui,
             label,
             Rect::new(bottom.x, bottom.y, bottom.w - 60., 48.),
-            can,
+            can && !busy,
         ) && can
             && !busy
         {
@@ -1338,16 +1793,23 @@ impl OnlinePage {
         }
     }
     fn card_modal(&mut self, ui: &mut Ui, g: &reverie::View, card: u8, x: f32, width: f32) {
-        draw_rectangle(
-            0.,
-            56.,
-            screen_width(),
-            screen_height() - 56.,
-            Color::new(0., 0., 0., 0.75),
+        draw_rectangle(0., 56., screen_width(), screen_height() - 56., ui.theme.bg);
+        ui.centered(
+            "A closer look",
+            Rect::new(x, 64., width, 26.),
+            14.,
+            ui.theme.muted,
+            false,
         );
-        let h = (screen_height() - 170.).clamp(90., 720.);
+        let h = (screen_height() - 208.).clamp(90., 660.);
         let w = (h / 1.5).min(width - 16.);
-        let r = Rect::new((screen_width() - w) / 2., 70., w, w * 1.5);
+        let r = Rect::new((screen_width() - w) / 2., 100., w, w * 1.5);
+        bordered(
+            Rect::new(r.x - 7., r.y - 7., r.w + 14., r.h + 14.),
+            18.,
+            ui.theme.line,
+            ui.theme.bg,
+        );
         self.art.draw(ui, card, r);
         let own = g.table.iter().any(|c| c.card == card && c.own);
         let can = g.can_play
@@ -1367,7 +1829,7 @@ impl OnlinePage {
         if ui.button("Close", Rect::new(x, by, bw, 48.), false) {
             self.preview = None;
         }
-        if ui.button(label, Rect::new(x + bw + 12., by, bw, 48.), can) && can {
+        if primary(ui, label, Rect::new(x + bw + 12., by, bw, 48.), can) && can {
             if let Some(i) = self.selected.iter().position(|c| *c == card) {
                 self.selected.remove(i);
             } else if g.phase == "submit" && g.pick == 2 {

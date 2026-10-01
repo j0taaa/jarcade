@@ -1,5 +1,8 @@
 //! Original, resolution-independent woodland court portraits.
-use crate::ui::{Ui, bordered};
+use crate::{
+    online_style as style,
+    ui::{Ui, bordered},
+};
 use jarcade::multiplayer::coup::Role;
 use macroquad::prelude::*;
 pub fn court_card(ui: &Ui, rect: Rect, role: Option<Role>, revealed: bool, small: bool) {
@@ -21,6 +24,22 @@ pub fn court_card(ui: &Ui, rect: Rect, role: Option<Role>, revealed: bool, small
         },
         if ui.theme.saver { BLACK } else { base },
     );
+    if !small && rect.w > 65. {
+        let trim = Color::new(ink.r, ink.g, ink.b, 0.24);
+        bordered(
+            Rect::new(rect.x + 5., rect.y + 5., rect.w - 10., rect.h - 10.),
+            9.,
+            trim,
+            if ui.theme.saver { BLACK } else { base },
+        );
+        for sign in [-1., 1.] {
+            style::spark(
+                vec2(rect.center().x + sign * (rect.w / 2. - 13.), rect.y + 15.),
+                3.,
+                ink,
+            );
+        }
+    }
     let center = vec2(rect.center().x, rect.y + rect.h * 0.42);
     let s = rect.w * 0.32;
     let shade = if ui.theme.saver {
@@ -48,6 +67,7 @@ pub fn court_card(ui: &Ui, rect: Rect, role: Option<Role>, revealed: bool, small
                 ink,
             );
         }
+        style::crown(center, s * 0.2, if ui.theme.saver { BLACK } else { base });
     } else {
         // Fox / owl / otter / hare / bear, with distinct silhouettes and regalia.
         draw_ellipse(center.x, center.y + s * 0.85, s * 0.98, s * 0.60, 0., shade);
@@ -229,11 +249,12 @@ pub fn preview(ui: &Ui, rect: Rect) {
         true,
     );
     for i in 0..3 {
-        draw_circle(
-            rect.center().x + (i as f32 - 1.) * rect.w * 0.08,
-            rect.y + rect.h * 0.90,
+        style::coin(
+            vec2(
+                rect.center().x + (i as f32 - 1.) * rect.w * 0.08,
+                rect.y + rect.h * 0.90,
+            ),
             rect.w * 0.035,
-            color_u8!(226, 168, 49, 255),
         );
     }
 }
@@ -352,16 +373,15 @@ impl DeckArt {
     pub fn preview(&self, ui: &Ui, rect: Rect) {
         let w = rect.w * 0.4;
         let h = (w * 1.5).min(rect.h * 0.94);
-        self.draw(
-            ui,
-            0,
-            Rect::new(rect.x + rect.w * 0.05, rect.center().y - h / 2., w, h),
-        );
-        self.draw(
-            ui,
-            1,
-            Rect::new(rect.x + rect.w * 0.55, rect.center().y - h / 2., w, h),
-        );
+        for (card, offset) in [(0, 0.05), (1, 0.55)] {
+            let r = Rect::new(rect.x + rect.w * offset, rect.center().y - h / 2., w, h);
+            bordered(r, 12., ui.theme.line, ui.theme.bg);
+            self.draw(
+                ui,
+                card,
+                Rect::new(r.x + 5., r.y + 5., r.w - 10., r.h - 10.),
+            );
+        }
     }
 }
 #[cfg(not(target_arch = "wasm32"))]
