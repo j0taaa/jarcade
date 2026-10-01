@@ -530,7 +530,7 @@ async fn upgrade(
         }
     }
     ACTIVE
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
             (n < 256).then_some(n + 1)
         })
         .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
