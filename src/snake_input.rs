@@ -25,6 +25,7 @@ pub fn controls(center: Vec2) -> [(Direction, Rect); 4] {
 #[derive(Default)]
 pub struct SnakeInput {
     pub turns: Vec<Direction>,
+    pub keys: Vec<(KeyCode, KeyMods, bool)>,
     pub pointer: Option<Vec2>,
     pub interrupted: bool,
     board: Rect,
@@ -41,6 +42,7 @@ impl SnakeInput {
         self.dpi = dpi;
         self.active = active;
         self.turns.clear();
+        self.keys.clear();
         self.pointer = None;
         if !active {
             self.swipe = None;
@@ -50,6 +52,7 @@ impl SnakeInput {
     pub fn cancel(&mut self) {
         self.swipe = None;
         self.turns.clear();
+        self.keys.clear();
         self.pointer = None;
     }
 
@@ -75,7 +78,8 @@ impl EventHandler for SnakeInput {
         self.cancel();
     }
 
-    fn key_down_event(&mut self, key: KeyCode, _: KeyMods, repeat: bool) {
+    fn key_down_event(&mut self, key: KeyCode, mods: KeyMods, repeat: bool) {
+        self.keys.push((key, mods, repeat));
         if !self.active || repeat {
             return;
         }
@@ -152,6 +156,30 @@ impl EventHandler for SnakeInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_keys_preserve_modifiers_and_order_even_between_frames() {
+        let mut input = input(3.);
+        input.configure(&Layout::new(390., 844.), 3., false);
+        input.key_down_event(
+            KeyCode::Right,
+            KeyMods {
+                shift: true,
+                ..KeyMods::default()
+            },
+            false,
+        );
+        input.key_down_event(KeyCode::Left, KeyMods::default(), true);
+        assert_eq!(input.keys.len(), 2);
+        assert_eq!(input.keys[0].0, KeyCode::Right);
+        assert!(input.keys[0].1.shift);
+        assert!(!input.keys[0].2);
+        assert_eq!(input.keys[1].0, KeyCode::Left);
+        assert!(input.keys[1].2);
+        assert!(input.turns.is_empty());
+        input.cancel();
+        assert!(input.keys.is_empty());
+    }
 
     fn input(dpi: f32) -> SnakeInput {
         let mut input = SnakeInput::default();

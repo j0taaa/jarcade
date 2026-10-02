@@ -1,7 +1,7 @@
 # Jarcade
 
 A small Rust / Macroquad arcade with shared game and UI code for desktop, web,
-Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, and Dicksit.
+Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, and Wavelength.
 
 Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa/jarcade>. Hosting uses this PC and the
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
@@ -21,7 +21,7 @@ bash scripts/build-web.sh
 cargo run --release --features server --bin jarcade-server
 ```
 
-Open <http://localhost:8091>. A plain static server can preview solo games, but multiplayer requires the room service. To update the public site:
+Open <http://localhost:8091>. A plain static server can run solo games and local Wavelength; online Coupe and Dicksit require the room service. To update the public site:
 
 ```sh
 host-app proxy jarcade 8091
@@ -236,9 +236,9 @@ node --test scripts/*.test.cjs
 bash scripts/build-web.sh
 ```
 
-Rust tests cover Snake, Minesweeper, and Fih rules and edge cases, first-move safety,
+Rust tests cover Snake, Minesweeper, Fih, and Wavelength rules and edge cases, first-move safety,
 flood fill, chording, deterministic placement, FPS measurement,
-frame-independent timing, input event ordering, fast swipes/taps, continuous
+frame-independent timing, input event ordering/modifiers, Wavelength handoff privacy, saves and dial projection, fast swipes/taps, continuous
 Snake trails and head rotation, offline pet care, purchases, save validation,
 mouth-only feeding, canceled drags, soap rubbing and body coverage, vector
 asset validation, mini-game hazards/streaks/deadlines and single rewards, playroom ball physics and throws, potion inventory, preference migration, haptic rate limiting, phone
@@ -290,9 +290,41 @@ the Metal view requests the attached screen’s maximum refresh rate. Native mob
 refresh behavior still requires physical-device verification.
 
 
+## Wavelength
+
+Choose **Multiplayer → Wavelength** for two or more people sharing one device.
+It follows the unscored [local reference](https://wavelength-local.gabrieljotalizardo.chatgpt.site/):
+one clue giver privately reveals the target between opposite ideas, gives a
+spoken clue, then taps **Hide & pass**. The next player taps **Ready to guess**,
+drags the needle, and confirms to reveal the colored proximity bands. Swap
+roles for the next round. There are no room codes, accounts, scores, or timers.
+
+Left/Right (or A/D) moves the needle; Shift makes larger steps. Space advances
+phases; Tab and Enter navigate controls. The deck icon offers 60 prompt pairs
+across Everyday, Playful, and Portuguese decks, plus editable custom extremes.
+Shuffle chooses another pair before a round. The same vector dial appears on
+the launch card and renders sharply at native display resolution.
+
+Targets are concealed on handoff, leaving, focus loss, and reload. A restored
+guessing round returns to the handoff before continuing. Progress and custom
+labels save separately in `jarcade.wavelength.v1` (web) or `wavelength.json`
+(native). Storage failure does not block play. This is a casual same-device
+privacy boundary; local saves contain the target. No network connection is
+opened by this game. It plays offline once loaded, and idle screens have no
+recurring application timer, including with the FPS counter enabled. Only a
+held drag requests frames, at display refresh rate normally or 30 FPS in power
+saver. The interface adapts to portrait and landscape layouts.
+
+Pure rules and persistence validation are in `src/wavelength.rs`; the shared
+view and gameplay preview are in `src/wavelength_view.rs`. Browser QA:
+
+```sh
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-wavelength.cjs
+```
+
 ## Multiplayer
 
-Open the **Multiplayer** category, enter a name, then create a room or join a
+For **Coupe** and **Dicksit**, open the Multiplayer category, enter a name, then create a room or join a
 six-character room code. Everyone marks Ready; the host starts. Games run on
 separate devices with private hands, secret submissions/votes, and explicit
 challenge/block windows. Back returns to the arcade and preserves the seat;

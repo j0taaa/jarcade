@@ -16,3 +16,4 @@ pub mod snake;
 pub mod snake_input;
 pub mod snake_motion;
 pub mod timing;
+pub mod wavelength;

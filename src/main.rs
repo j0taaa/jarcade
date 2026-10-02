@@ -9,6 +9,7 @@ mod online_style;
 mod online_view;
 mod platform;
 mod ui;
+mod wavelength_view;
 
 use fih_view::{FihPage, FihPreview, Nav};
 use game_view::{Preview, draw_board};
@@ -34,6 +35,7 @@ enum Screen {
     Mines,
     Fih,
     Multiplayer,
+    Wavelength,
 }
 #[derive(Clone, Copy)]
 enum Action {
@@ -45,6 +47,7 @@ enum Action {
     NewFih,
     NewCourt,
     NewReverie,
+    NewWavelength,
     TogglePause,
     TogglePower,
     ToggleHaptics,
@@ -91,6 +94,7 @@ struct App {
     fih: FihPage,
     fih_preview: FihPreview,
     online: online_view::OnlinePage,
+    wavelength: wavelength_view::WavelengthPage,
     previous_body: Vec<Cell>,
     render_body: Vec<Vec2>,
     multiplayer: bool,
@@ -107,6 +111,7 @@ impl App {
         Self {
             screen: Screen::Home,
             online: online_view::OnlinePage::new(),
+            wavelength: wavelength_view::WavelengthPage::new(seed()),
             settings,
             game: Snake::new(seed()),
             clock: TickClock::default(),
@@ -154,6 +159,9 @@ impl App {
             Action::None => return false,
             Action::Home => {
                 self.online.suspend();
+                if self.screen == Screen::Wavelength {
+                    self.wavelength.interrupt();
+                }
                 self.fih.interrupt();
                 self.fih_preview = FihPreview::new(&self.fih.pet, self.settings.power_saver);
                 self.mines.cancel_gesture();
@@ -187,6 +195,13 @@ impl App {
                     None,
                 );
                 self.screen = Screen::Multiplayer;
+            }
+            Action::NewWavelength => {
+                self.game.pause();
+                self.online.suspend();
+                self.mines.cancel_gesture();
+                self.wavelength.enter();
+                self.screen = Screen::Wavelength;
             }
             Action::NewFih => {
                 self.game.pause();
@@ -222,6 +237,7 @@ impl App {
                 | Action::NewFih
                 | Action::NewCourt
                 | Action::NewReverie
+                | Action::NewWavelength
         ) {
             ui.reset_focus();
         }
@@ -302,7 +318,10 @@ impl App {
     }
 
     fn header(&mut self, ui: &mut Ui, layout: &Layout) -> Action {
-        if matches!(self.screen, Screen::Fih | Screen::Multiplayer) {
+        if matches!(
+            self.screen,
+            Screen::Fih | Screen::Multiplayer | Screen::Wavelength
+        ) {
             return Action::None;
         }
         let compact = self.screen == Screen::Mines && !self.mines.configuring;
@@ -395,7 +414,7 @@ impl App {
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        let count = if self.multiplayer { 2 } else { 3 };
+        let count = 3;
         let grid = layout.game_grid_for(card_y, count);
         for index in 0..count {
             let card = grid.card(index);
@@ -427,8 +446,10 @@ impl App {
             if self.multiplayer {
                 if index == 0 {
                     card_art::preview(ui, preview_rect);
-                } else {
+                } else if index == 1 {
                     self.online.art.preview(ui, preview_rect);
+                } else {
+                    wavelength_view::preview(ui, preview_rect);
                 }
             } else if index == 0 {
                 self.preview.draw(preview_rect);
@@ -438,7 +459,7 @@ impl App {
                 self.fih_preview.draw(preview_rect);
             }
             let title = if self.multiplayer {
-                ["Coupe", "Dicksit"][index]
+                ["Coupe", "Dicksit", "Wavelength"][index]
             } else {
                 ["Snake", "Minesweeper", "Fih"][index]
             };
@@ -452,7 +473,7 @@ impl App {
             );
             ui.label(
                 if self.multiplayer {
-                    ["Bluff · 2–6", "Stories · 3–8"][index]
+                    ["Bluff · 2–6", "Stories · 3–8", "Local · 2+"][index]
                 } else {
                     ["Classic", "Puzzle", "Pet"][index]
                 },
@@ -485,8 +506,10 @@ impl App {
                 return if self.multiplayer {
                     if index == 0 {
                         Action::NewCourt
-                    } else {
+                    } else if index == 1 {
                         Action::NewReverie
+                    } else {
+                        Action::NewWavelength
                     }
                 } else if index == 0 {
                     Action::NewGame
@@ -750,6 +773,10 @@ async fn main() {
         app.online.enter(game, Some(code));
         app.screen = Screen::Multiplayer;
         app.multiplayer = true;
+    } else if platform::launch_wavelength() {
+        app.wavelength.enter();
+        app.screen = Screen::Wavelength;
+        app.multiplayer = true;
     }
     let timer = platform::WakeTimer::new();
     let subscriber = macroquad::input::utils::register_input_subscriber();
@@ -769,12 +796,18 @@ async fn main() {
         if input.interrupted || web_interrupted {
             app.game.pause();
             app.fih.interrupt();
+            if app.screen == Screen::Wavelength {
+                app.wavelength.interrupt();
+            }
             input.cancel();
             app.mines.cancel_gesture();
             input.interrupted = false;
         }
         if app.screen == Screen::Multiplayer {
             app.online.poll();
+        }
+        if app.screen == Screen::Wavelength {
+            app.wavelength.poll();
         }
         ui.begin(app.settings.power_saver, input.pointer);
         let mut action = Action::None;
@@ -788,6 +821,12 @@ async fn main() {
                 }
             } else if app.screen == Screen::Multiplayer {
                 if app.online.back() {
+                    Action::Home
+                } else {
+                    Action::None
+                }
+            } else if app.screen == Screen::Wavelength {
+                if app.wavelength.back() {
                     Action::Home
                 } else {
                     Action::None
@@ -818,6 +857,13 @@ async fn main() {
                     Action::None
                 }
             }
+            Screen::Wavelength => {
+                let (back, pulse) = app.wavelength.draw(&mut ui, input.pointer, &input.keys);
+                if let Some(pulse) = pulse {
+                    app.pulse(pulse, frame_start);
+                }
+                if back { Action::Home } else { Action::None }
+            }
             Screen::Home => app.home(&mut ui, &layout),
             Screen::Settings => app.settings_page(&mut ui, &layout),
             Screen::Game => app.game_page(&mut ui, &layout),
@@ -843,6 +889,7 @@ async fn main() {
         let continuous = (app.screen == Screen::Game && app.game.status() == Status::Running)
             || (app.screen == Screen::Mines && app.mines.needs_frame())
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
+            || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
             || (app.screen == Screen::Fih
                 && app.fih.needs_frame(frame_start, app.settings.power_saver));
         let fps = app.fps.record(frame_start, continuous);
@@ -856,11 +903,17 @@ async fn main() {
                 screen_width() - 86.0,
                 if app.screen == Screen::Fih {
                     screen_height() - 25.0
+                } else if app.screen == Screen::Wavelength {
+                    screen_height() - 18.0
                 } else {
                     screen_height() - 27.0
                 },
                 78.0,
-                21.0,
+                if app.screen == Screen::Wavelength {
+                    14.0
+                } else {
+                    21.0
+                },
             );
             rounded(badge, 8.0, ui.theme.bg);
             ui.centered(&text, badge, 11.0, ui.theme.muted, false);
@@ -886,7 +939,12 @@ async fn main() {
                 app.mines.configuring,
                 app.mines.size,
                 app.mines.zoom_percent(),
-                (app.fih.revision, app.online.revision, app.multiplayer),
+                (
+                    app.fih.revision,
+                    app.online.revision,
+                    app.wavelength.revision,
+                    app.multiplayer,
+                ),
                 app.fih.round.as_ref().map(|r| {
                     (
                         r.kind,
@@ -901,9 +959,10 @@ async fn main() {
         if last_announcement != Some(state) {
             let message = match app.screen {
                 Screen::Multiplayer => app.online.announcement(),
+                Screen::Wavelength => app.wavelength.announcement(),
                 Screen::Home => {
                     if app.multiplayer {
-                        "Jarcade. Multiplayer. Select Coupe or Dicksit. Online rooms.".to_owned()
+                        "Jarcade. Multiplayer. Select Coupe, Dicksit, or Wavelength. Coupe and Dicksit use online rooms; Wavelength is local on this device.".to_owned()
                     } else {
                         "Jarcade. Games. Select Snake, Minesweeper, or Fih to play.".to_owned()
                     }
@@ -942,7 +1001,9 @@ async fn main() {
                 // Queue the next vsync/rAF directly, without a second timer or FPS cap.
                 Some(0.0)
             }
-        } else if app.screen == Screen::Multiplayer && app.online.needs_frame() {
+        } else if (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
+            || (app.screen == Screen::Multiplayer && app.online.needs_frame())
+        {
             Some(if app.settings.power_saver {
                 1.0 / 30.0
             } else {

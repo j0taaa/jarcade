@@ -139,3 +139,27 @@ test('Fih remains playable when its storage is unavailable', () => {
   assert.equal(app.env.jarcade_fih_load(0, 1024), 0);
   assert.equal(app.env.jarcade_fih_save(0, 10), 0);
 });
+
+
+test('Wavelength saves are isolated, UTF-8 safe, and buffer bounded', () => {
+  const app = adapter();
+  const store = new Map([['jarcade.fih.v1', 'pet'], ['jarcade.settings.v1', 'settings']]);
+  app.context.localStorage = { getItem(key) { return store.get(key); }, setItem(key, value) { store.set(key, value); } };
+  const data = JSON.stringify({ custom: ['Frio', 'Quente ☀'], phase: 'Handoff' });
+  const bytes = new TextEncoder().encode(data);
+  new Uint8Array(app.memory.buffer).set(bytes);
+  assert.equal(app.env.jarcade_wavelength_save(0, bytes.length), 1);
+  assert.equal(store.get('jarcade.wavelength.v1'), data);
+  assert.equal(store.get('jarcade.fih.v1'), 'pet');
+  assert.equal(store.get('jarcade.settings.v1'), 'settings');
+  assert.equal(app.env.jarcade_wavelength_load(1024, 4096), bytes.length);
+  assert.equal(new TextDecoder().decode(new Uint8Array(app.memory.buffer, 1024, bytes.length)), data);
+  assert.equal(app.env.jarcade_wavelength_load(1024, 4), 4);
+  assert.equal(new TextDecoder().decode(new Uint8Array(app.memory.buffer, 1024, 4)), '{"cu');
+});
+
+test('Wavelength remains playable when browser storage is unavailable', () => {
+  const app = adapter();
+  assert.equal(app.env.jarcade_wavelength_load(0, 4096), 0);
+  assert.equal(app.env.jarcade_wavelength_save(0, 10), 0);
+});

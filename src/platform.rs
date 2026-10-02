@@ -15,6 +15,8 @@ unsafe extern "C" {
     fn jarcade_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_fih_load(buffer: *mut u8, capacity: usize) -> usize;
     fn jarcade_fih_save(buffer: *const u8, length: usize) -> i32;
+    fn jarcade_wavelength_load(buffer: *mut u8, capacity: usize) -> usize;
+    fn jarcade_wavelength_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_interrupted() -> i32;
     fn jarcade_haptics_supported() -> i32;
     fn jarcade_haptic(kind: i32);
@@ -172,6 +174,48 @@ pub fn load_settings() -> Settings {
             .and_then(|path| std::fs::read_to_string(path).ok())
             .map(|value| Settings::decode(&value))
             .unwrap_or_default()
+    }
+}
+
+pub fn load_wavelength(seed: u64) -> jarcade::wavelength::Game {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut buffer = [0u8; 4096];
+        // SAFETY: bundled adapter copies at most the supplied capacity.
+        let n =
+            unsafe { jarcade_wavelength_load(buffer.as_mut_ptr(), buffer.len()) }.min(buffer.len());
+        jarcade::wavelength::Game::decode(
+            std::str::from_utf8(&buffer[..n]).unwrap_or_default(),
+            seed,
+        )
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let data = settings_path()
+            .and_then(|p| std::fs::read_to_string(p.with_file_name("wavelength.json")).ok())
+            .unwrap_or_default();
+        jarcade::wavelength::Game::decode(&data, seed)
+    }
+}
+pub fn save_wavelength(game: &jarcade::wavelength::Game) -> bool {
+    let data = game.encode();
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: adapter reads the live UTF-8 slice synchronously.
+    unsafe {
+        jarcade_wavelength_save(data.as_ptr(), data.len()) != 0
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(path) = settings_path().map(|p| p.with_file_name("wavelength.json")) else {
+            return false;
+        };
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        std::fs::create_dir_all(parent)
+            .and_then(|()| std::fs::write(path.with_extension("tmp"), data))
+            .and_then(|()| std::fs::rename(path.with_extension("tmp"), path))
+            .is_ok()
     }
 }
 
@@ -596,6 +640,21 @@ pub fn copy_invite(game: jarcade::multiplayer::GameKind, room: &str) {
     }
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (game, room);
+}
+pub fn launch_wavelength() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut data = [0u8; 256];
+        // SAFETY: bundled adapter bounds its synchronous copy to this buffer.
+        let n = unsafe { jarcade_invite_load(data.as_mut_ptr(), data.len()) }.min(data.len());
+        serde_json::from_slice::<serde_json::Value>(&data[..n])
+            .ok()
+            .is_some_and(|v| v["game"] == "wavelength")
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
 }
 pub fn editor_open(value: &str, id: usize, rect: macroquad::prelude::Rect, max: usize) {
     #[cfg(target_arch = "wasm32")]
