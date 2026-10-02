@@ -65,6 +65,16 @@ test('power saver matches the canvas surround and browser theme color', () => {
   }
 });
 
+test('Wavelength uses warm paper, power saver overrides it, and exiting restores white', () => {
+  const app = adapter();
+  for (const [saver, warm, color] of [[0, 1, '#f5ebd9'], [1, 1, '#000000'], [0, 0, '#ffffff']]) {
+    app.env.jarcade_appearance(saver, warm);
+    assert.equal(app.context.document.body.style.backgroundColor, color);
+    assert.equal(app.context.document.documentElement.style.backgroundColor, color);
+    assert.equal(app.elements.get('meta').attrs.content, color);
+  }
+});
+
 test('accessible status reflects gameplay without dependence on storage availability', () => {
   const app = adapter();
   const bytes = new TextEncoder().encode('Jarcade. Snake. Paused. Score 3.');

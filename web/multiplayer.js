@@ -29,12 +29,17 @@
       env.jarcade_copy_invite=(p,n)=>{const data=JSON.parse(decode(p,n));const url=new URL(location.href);url.search="";url.searchParams.set("game",data.game);url.searchParams.set("room",data.room);navigator.clipboard?.writeText(url.href).catch(()=>{});};
       env.jarcade_editor_open=(p,n,id,x,y,w,h,max)=>{
         const value=decode(p,n); const bounds=document.getElementById("glcanvas").getBoundingClientRect(); x+=bounds.left; y+=bounds.top; hideEditor(); const input=document.createElement("input");editor=input;
-        input.id="jarcade-text-editor";input.value=value;input.maxLength=max;input.autocomplete="off";input.spellcheck=id>=2;input.enterKeyHint="done";input.setAttribute("aria-label",["Player name","Room code","Story clue","First extreme","Second extreme"][id]);
+        input.id="jarcade-text-editor";input.jarcadeField=id;input.value=value;input.maxLength=max;input.autocomplete="off";input.spellcheck=id>=2;input.enterKeyHint="done";input.setAttribute("aria-label",["Player name","Room code","Story clue","First extreme","Second extreme"][id]);
         Object.assign(input.style,{position:"fixed",left:`${x}px`,top:`${y}px`,width:`${w}px`,height:`${h}px`,border:`2px solid ${id>=3?"#e2644e":"#1b6d4b"}`,borderRadius:"14px",background:document.body.style.backgroundColor||"white",color:document.body.style.backgroundColor==="rgb(0, 0, 0)"?"white":"#18221c",font:"16px system-ui",padding:"0 14px",zIndex:10,outline:"none"});
         input.oninput=()=>{edits.push(JSON.stringify({id,text:input.value,done:false}));wake();};
-        input.onkeydown=event=>{event.stopPropagation();if(event.key==="Enter"||event.key==="Escape"){event.preventDefault();edits.push(JSON.stringify({id,text:input.value,done:true}));hideEditor();wake();}};
+        input.onkeydown=event=>{event.stopPropagation();if(event.key==="Enter"||event.key==="Escape"){event.preventDefault();edits.push(JSON.stringify({id,text:input.value,done:true,cancelled:event.key==="Escape"}));hideEditor();wake();}};
         input.onblur=()=>{if(editor===input){edits.push(JSON.stringify({id,text:input.value,done:true}));hideEditor();wake();}};
-        document.body.appendChild(input);input.focus({preventScroll:true});input.setSelectionRange(input.value.length,input.value.length);
+        document.body.appendChild(input);input.focus({preventScroll:true});if(id>=3)input.select();else input.setSelectionRange(input.value.length,input.value.length);
+      };
+      env.jarcade_editor_position=(id,x,y,w,h)=>{
+        if(!editor || editor.jarcadeField!==id)return;
+        const bounds=document.getElementById("glcanvas").getBoundingClientRect();
+        Object.assign(editor.style,{left:`${x+bounds.left}px`,top:`${y+bounds.top}px`,width:`${w}px`,height:`${h}px`});
       };
       env.jarcade_editor_close=()=>{hideEditor();edits.length=0;};
       env.jarcade_editor_poll=(p,n)=>edits.length?copy(p,n,edits.shift()):0;

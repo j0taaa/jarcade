@@ -302,6 +302,13 @@ roles for the next round. There are no room codes, accounts, scores, or timers.
 Left/Right (or A/D) moves the needle; Shift makes larger steps. Space advances
 phases; Tab and Enter navigate controls. The deck icon offers 60 prompt pairs
 across Everyday, Playful, and Portuguese decks, plus editable custom extremes.
+Tap either label on the dial to edit that side directly. Enter or tapping away saves;
+Escape cancels, and blank edits keep the original. Editing preserves the target,
+guess, and round, including during play; the edited pair stays saved for later rounds.
+Labels support up to 120 characters; long titles shorten visually and remain complete
+in the editor. Fields stay aligned when the screen or phone keyboard resizes.
+Wavelength uses the reference’s warm cream background, including the browser surround,
+and true black in power saver. Other games keep their white default.
 Shuffle chooses another pair before a round. The same vector dial appears on
 the launch card and renders sharply at native display resolution.
 

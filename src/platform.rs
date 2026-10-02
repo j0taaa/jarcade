@@ -20,7 +20,7 @@ unsafe extern "C" {
     fn jarcade_interrupted() -> i32;
     fn jarcade_haptics_supported() -> i32;
     fn jarcade_haptic(kind: i32);
-    fn jarcade_appearance(saver: i32);
+    fn jarcade_appearance(saver: i32, warm: i32);
     fn jarcade_announce(buffer: *const u8, length: usize);
 }
 
@@ -29,14 +29,14 @@ pub fn configure_display() {
     ios_haptics::configure_display();
 }
 
-pub fn appearance(saver: bool) {
+pub fn appearance(saver: bool, warm: bool) {
     #[cfg(target_arch = "wasm32")]
     // SAFETY: scalar boolean passed to our bundled web adapter.
     unsafe {
-        jarcade_appearance(i32::from(saver));
+        jarcade_appearance(i32::from(saver), i32::from(warm));
     }
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = saver;
+    let _ = (saver, warm);
 }
 
 pub fn announce(text: &str) {
@@ -551,6 +551,7 @@ unsafe extern "C" {
         max: i32,
     );
     fn jarcade_editor_close();
+    fn jarcade_editor_position(id: usize, x: f32, y: f32, w: f32, h: f32);
     fn jarcade_editor_poll(p: *mut u8, n: usize) -> usize;
 }
 pub fn load_online() -> String {
@@ -686,11 +687,22 @@ pub fn editor_close() {
     #[cfg(not(target_arch = "wasm32"))]
     macroquad::miniquad::window::show_keyboard(false);
 }
+pub fn editor_position(id: usize, rect: macroquad::prelude::Rect) {
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: scalar field id and logical coordinates for our active DOM editor.
+    unsafe {
+        jarcade_editor_position(id, rect.x, rect.y, rect.w, rect.h);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (id, rect);
+}
 #[derive(serde::Deserialize)]
 pub struct Edit {
     pub id: usize,
     pub text: String,
     pub done: bool,
+    #[serde(default)]
+    pub cancelled: bool,
 }
 pub fn editor_poll() -> Option<Edit> {
     #[cfg(target_arch = "wasm32")]

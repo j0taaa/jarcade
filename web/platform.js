@@ -42,8 +42,8 @@
         const patterns = [8, 18, [28, 35, 16], [12, 35, 12, 35, 22]];
         try { navigator.vibrate(patterns[kind] ?? 8); } catch { /* Unsupported hardware or policy. */ }
       };
-      imports.env.jarcade_appearance = saver => {
-        const color = saver ? "#000000" : "#ffffff";
+      imports.env.jarcade_appearance = (saver, warm) => {
+        const color = saver ? "#000000" : warm ? "#f5ebd9" : "#ffffff";
         document.documentElement.style.backgroundColor = color;
         document.body.style.backgroundColor = color;
         document.querySelector('meta[name="theme-color"]').setAttribute("content", color);

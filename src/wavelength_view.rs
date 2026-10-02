@@ -6,7 +6,7 @@ use crate::{
 use jarcade::{
     feedback::Pulse,
     layout::touch_point,
-    wavelength::{Deck, Game, Phase, Proximity},
+    wavelength::{Deck, Game, MAX_EXTREME, Phase, Proximity},
 };
 use macroquad::miniquad::KeyMods;
 use macroquad::prelude::*;
@@ -14,6 +14,7 @@ use macroquad::prelude::*;
 const CORAL: Color = color_u8!(226, 100, 78, 255);
 const TEAL: Color = color_u8!(66, 150, 139, 255);
 const CREAM: Color = color_u8!(251, 247, 236, 255);
+const PAPER: Color = color_u8!(245, 235, 217, 255);
 
 pub struct WavelengthPage {
     game: Game,
@@ -26,6 +27,11 @@ pub struct WavelengthPage {
     custom: bool,
     fields: [String; 2],
     editing: Option<usize>,
+    inline_edit: bool,
+    edit_original: String,
+    editor_completed: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    replace_selection: bool,
     save_failed: bool,
 }
 impl WavelengthPage {
@@ -42,6 +48,11 @@ impl WavelengthPage {
             decks: false,
             custom: false,
             editing: None,
+            inline_edit: false,
+            edit_original: String::new(),
+            editor_completed: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            replace_selection: false,
             save_failed: false,
         }
     }
@@ -60,8 +71,25 @@ impl WavelengthPage {
         if self.editing.take().is_some() {
             platform::editor_close();
         }
+        self.inline_edit = false;
+    }
+    fn finish_editor(&mut self, cancelled: bool) {
+        if let Some(id) = self.editing {
+            if cancelled {
+                self.fields[id] = self.edit_original.clone();
+            } else if self.inline_edit && self.game.edit_side(id, &self.fields[id]) {
+                self.save();
+            }
+        }
+        self.close_editor();
+        self.editor_completed = true;
+        self.revision += 1;
     }
     pub fn back(&mut self) -> bool {
+        if self.inline_edit {
+            self.finish_editor(true);
+            return false;
+        }
         self.close_editor();
         self.revision += 1;
         if self.custom {
@@ -86,17 +114,35 @@ impl WavelengthPage {
     pub fn needs_frame(&self) -> bool {
         self.drag.is_some()
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn replace_selected(&mut self, id: usize) -> bool {
+        let selected = self.replace_selection;
+        if selected {
+            self.fields[id].clear();
+        }
+        self.replace_selection = false;
+        selected
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn insert_native(&mut self, id: usize, c: char) {
+        self.replace_selected(id);
+        if self.fields[id].chars().count() < MAX_EXTREME {
+            self.fields[id].push(c);
+            self.revision += 1;
+        }
+    }
     pub fn poll(&mut self) {
+        self.editor_completed = false;
         while let Some(edit) = platform::editor_poll() {
-            if (3..5).contains(&edit.id) {
+            if (3..5).contains(&edit.id) && self.editing == Some(edit.id - 3) {
                 self.fields[edit.id - 3] = edit
                     .text
                     .chars()
                     .filter(|c| !c.is_control())
-                    .take(48)
+                    .take(MAX_EXTREME)
                     .collect();
                 if edit.done {
-                    self.editing = None;
+                    self.finish_editor(edit.cancelled);
                 }
                 self.revision += 1;
             }
@@ -104,17 +150,18 @@ impl WavelengthPage {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(id) = self.editing {
             while let Some(c) = get_char_pressed() {
-                if !c.is_control() && self.fields[id].chars().count() < 48 {
-                    self.fields[id].push(c);
-                    self.revision += 1;
+                if !c.is_control() {
+                    self.insert_native(id, c);
                 }
             }
             if is_key_pressed(KeyCode::Backspace) {
-                self.fields[id].pop();
+                if !self.replace_selected(id) {
+                    self.fields[id].pop();
+                }
                 self.revision += 1;
             }
             if is_key_pressed(KeyCode::Enter) {
-                self.close_editor();
+                self.finish_editor(false);
                 clear_input_queue();
             }
         }
@@ -143,6 +190,9 @@ impl WavelengthPage {
                 (v.guess * 100.).round()
             )),
         }
+        if self.game.view().phase != Phase::Handoff {
+            text.push_str(" Tap either side to edit its text.");
+        }
         if self.help {
             text.push_str(" How to play is open.");
         }
@@ -151,6 +201,9 @@ impl WavelengthPage {
         }
         if self.custom {
             text.push_str(" Custom spectrum editor is open.");
+        }
+        if self.inline_edit {
+            text.push_str(" Editing spectrum side. Enter saves; Escape cancels.");
         }
         text
     }
@@ -166,6 +219,11 @@ impl WavelengthPage {
             CORAL
         };
         ui.theme.panel = if ui.theme.saver { BLACK } else { CREAM };
+        ui.theme.bg = if ui.theme.saver { BLACK } else { PAPER };
+        clear_background(ui.theme.bg);
+        if self.editor_completed {
+            ui.activated = true;
+        }
         let size = vec2(screen_width(), screen_height());
         if self.size != size {
             if self.drag.take().is_some() {
@@ -183,7 +241,13 @@ impl WavelengthPage {
                 self.save();
             }
         }
-        let original = if self.blocked || self.drag.is_some() {
+        let mobile_editor = cfg!(any(target_os = "android", target_os = "ios"))
+            && self.inline_edit
+            && self.editing.is_some();
+        if mobile_editor {
+            ui.keyboard_focus = false;
+        }
+        let original = if self.blocked || self.drag.is_some() || mobile_editor {
             Some(ui.override_pointer(None))
         } else {
             None
@@ -231,6 +295,10 @@ impl WavelengthPage {
         }
         if let Some(original) = original {
             ui.override_pointer(original);
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        if self.inline_edit && self.editing.is_some() {
+            self.draw_keyboard(ui, (screen_width() - w.min(600.)) / 2., w.min(600.));
         }
         if self.blocked && live == 0 {
             self.blocked = false;
@@ -338,21 +406,39 @@ impl WavelengthPage {
         );
         let endpoints_y = top + if compact { 32. } else { 42. };
         let endpoint_w = (dw - 60.) / 2.;
-        endpoint(
-            ui,
-            &left,
-            Rect::new(dx, endpoints_y, endpoint_w, 52.),
-            CORAL,
-        );
-        endpoint(
-            ui,
-            &right,
-            Rect::new(dx + dw - endpoint_w, endpoints_y, endpoint_w, 52.),
-            TEAL,
-        );
+        for (id, text, color) in [(0, &left, CORAL), (1, &right, TEAL)] {
+            let r = Rect::new(
+                dx + if id == 0 { 0. } else { dw - endpoint_w },
+                endpoints_y,
+                endpoint_w,
+                52.,
+            );
+            endpoint(ui, text, r, color);
+            if self.inline_edit && self.editing == Some(id) {
+                platform::editor_position(id + 3, r);
+                bordered(r, 12., ui.theme.accent, ui.theme.bg);
+                wrap(ui, &self.fields[id], r, 17., ui.theme.text, true);
+            }
+            if !self.blocked && self.drag.is_none() && ui.hit(r) && self.editing != Some(id) {
+                if self.inline_edit {
+                    self.finish_editor(false);
+                }
+                let v = self.game.view();
+                self.fields = [v.left.into(), v.right.into()];
+                self.edit_original = self.fields[id].clone();
+                self.editing = Some(id);
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.replace_selection = true;
+                }
+                self.inline_edit = true;
+                platform::editor_open(&self.fields[id], id + 3, r, MAX_EXTREME);
+                clear_input_queue();
+            }
+        }
         let can_shuffle = matches!(phase, Phase::Ready | Phase::Result);
         let shuffle = Rect::new(dx + (dw - 44.) / 2., endpoints_y + 4., 44., 44.);
-        if can_shuffle && shuffle_button(ui, shuffle) {
+        if can_shuffle && self.editing.is_none() && shuffle_button(ui, shuffle) {
             self.game.shuffle();
             self.save();
         }
@@ -403,7 +489,7 @@ impl WavelengthPage {
         // A dial drag owns its pointer until release; crossing the button never confirms.
         let was_drag = self.drag.is_some();
         let mut pulse = None;
-        if phase == Phase::Guess {
+        if phase == Phase::Guess && self.editing.is_none() {
             if !self.blocked && self.drag.is_none() && press.is_some_and(|p| dial.contains(p)) {
                 let id = touches()
                     .iter()
@@ -480,14 +566,21 @@ impl WavelengthPage {
         } else {
             None
         };
-        let shortcut = self.drag.is_none()
+        let shortcut = self.editing.is_none()
+            && !self.editor_completed
+            && self.drag.is_none()
             && !was_drag
             && !self.blocked
             && keys.iter().any(|(key, _, repeat)| {
                 !repeat
                     && (*key == KeyCode::Space || (!ui.keyboard_focus && *key == KeyCode::Enter))
             });
-        if (online_style::primary(ui, button_label, Rect::new(bx, by, bw, 48.), true) || shortcut)
+        if (online_style::primary(
+            ui,
+            button_label,
+            Rect::new(bx, by, bw, 48.),
+            self.editing.is_none() && !self.editor_completed,
+        ) || shortcut)
             && !was_drag
             && self.drag.is_none()
             && !self.blocked
@@ -495,7 +588,7 @@ impl WavelengthPage {
             self.game.advance();
             self.save();
             ui.activated = true;
-            if phase == Phase::Guess {
+            if phase == Phase::Guess && self.editing.is_none() {
                 pulse = Some(if self.game.view().result == Some(Proximity::InTune) {
                     Pulse::Won
                 } else {
@@ -542,7 +635,7 @@ impl WavelengthPage {
             (
                 "3",
                 "Make a guess",
-                "Everyone else discusses the clue and drags the needle. Left/Right also work.",
+                "Discuss the clue and drag the needle. Left/Right also work. Tap either label to edit its text.",
             ),
             (
                 "4",
@@ -681,6 +774,9 @@ impl WavelengthPage {
         }
     }
     fn field(&mut self, ui: &mut Ui, id: usize, r: Rect) {
+        if self.editing == Some(id) {
+            platform::editor_position(id + 3, r);
+        }
         bordered(
             r,
             16.,
@@ -705,7 +801,12 @@ impl WavelengthPage {
         );
         if ui.hit(r) {
             self.editing = Some(id);
-            platform::editor_open(&self.fields[id], id + 3, r, 48);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.replace_selection = true;
+            }
+            self.edit_original = self.fields[id].clone();
+            platform::editor_open(&self.fields[id], id + 3, r, MAX_EXTREME);
         }
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -728,9 +829,8 @@ impl WavelengthPage {
                 cw,
                 40.,
             );
-            if ui.button(&c.to_string(), r, false) && self.fields[id].chars().count() < 48 {
-                self.fields[id].push(*c);
-                self.revision += 1;
+            if ui.button(&c.to_string(), r, false) {
+                self.insert_native(id, *c);
             }
         }
         let bw = (w - 16.) / 3.;
@@ -741,15 +841,13 @@ impl WavelengthPage {
                 false,
             ) {
                 match i {
-                    0 => {
-                        if self.fields[id].chars().count() < 48 {
-                            self.fields[id].push(' ');
+                    0 => self.insert_native(id, ' '),
+                    1 => {
+                        if !self.replace_selected(id) {
+                            self.fields[id].pop();
                         }
                     }
-                    1 => {
-                        self.fields[id].pop();
-                    }
-                    _ => self.close_editor(),
+                    _ => self.finish_editor(false),
                 };
                 self.revision += 1;
             }
@@ -952,7 +1050,7 @@ fn fit(ui: &Ui, text: &str, r: Rect, size: f32, ink: Color, bold: bool) {
 }
 fn wrap(ui: &Ui, text: &str, r: Rect, size: f32, ink: Color, bold: bool) {
     let mut size = size;
-    let lines = loop {
+    let mut lines = loop {
         let mut lines: Vec<String> = vec![String::new()];
         for word in text.split_whitespace() {
             let next = if lines.last().unwrap().is_empty() {
@@ -981,6 +1079,15 @@ fn wrap(ui: &Ui, text: &str, r: Rect, size: f32, ink: Color, bold: bool) {
         size -= 1.;
     };
     let line_h = size + 3.;
+    let max_lines = ((r.h / line_h) as usize).max(1);
+    if lines.len() > max_lines {
+        lines.truncate(max_lines);
+        let last = lines.last_mut().unwrap();
+        while !last.is_empty() && ui.text_width(&format!("{last}…"), size, bold) > r.w {
+            last.pop();
+        }
+        last.push('…');
+    }
     let top = r.y + (r.h - line_h * lines.len() as f32) / 2.;
     for (i, line) in lines.iter().enumerate() {
         fit(

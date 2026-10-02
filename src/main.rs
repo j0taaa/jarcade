@@ -105,7 +105,7 @@ struct App {
 impl App {
     fn new(ui: &Ui) -> Self {
         let settings = platform::load_settings();
-        platform::appearance(settings.power_saver);
+        platform::appearance(settings.power_saver, false);
         let fih = FihPage::new();
         let fih_preview = FihPreview::new(&fih.pet, settings.power_saver);
         Self {
@@ -220,7 +220,6 @@ impl App {
                 self.preview = Preview::new(self.settings.power_saver);
                 self.fih_preview = FihPreview::new(&self.fih.pet, self.settings.power_saver);
                 self.mines_preview = MinesPreview::new(ui, self.settings.power_saver);
-                platform::appearance(self.settings.power_saver);
                 self.save();
             }
             Action::ToggleHaptics => {
@@ -241,6 +240,7 @@ impl App {
         ) {
             ui.reset_focus();
         }
+        platform::appearance(self.settings.power_saver, self.screen == Screen::Wavelength);
         true
     }
     fn steer(&mut self, direction: Direction, now: f64) {
@@ -778,6 +778,7 @@ async fn main() {
         app.screen = Screen::Wavelength;
         app.multiplayer = true;
     }
+    platform::appearance(app.settings.power_saver, app.screen == Screen::Wavelength);
     let timer = platform::WakeTimer::new();
     let subscriber = macroquad::input::utils::register_input_subscriber();
     let mut input = SnakeInput::default();

@@ -2,6 +2,8 @@
 use crate::multiplayer::{Rng, clean_text};
 use serde::{Deserialize, Serialize};
 
+pub const MAX_EXTREME: usize = 120;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Phase {
     Ready,
@@ -198,7 +200,10 @@ impl Game {
         if !matches!(self.phase, Phase::Ready | Phase::Result) {
             return false;
         }
-        let pair = [clean_text(left, 48), clean_text(right, 48)];
+        let pair = [
+            clean_text(left, MAX_EXTREME),
+            clean_text(right, MAX_EXTREME),
+        ];
         if pair.iter().any(String::is_empty) {
             return false;
         }
@@ -206,6 +211,26 @@ impl Game {
         self.deck = Deck::Custom;
         self.reversed = false;
         self.randomize(false);
+        true
+    }
+    /// Edit the displayed side without re-rolling the target or resetting the turn.
+    pub fn edit_side(&mut self, side: usize, text: &str) -> bool {
+        if side > 1 || self.phase == Phase::Handoff {
+            return false;
+        }
+        let text = clean_text(text, MAX_EXTREME);
+        if text.is_empty() {
+            return false;
+        }
+        let view = self.view();
+        let mut pair = [view.left.to_owned(), view.right.to_owned()];
+        if pair[side] == text {
+            return false;
+        }
+        pair[side] = text;
+        self.custom = pair;
+        self.deck = Deck::Custom;
+        self.reversed = false;
         true
     }
     pub fn custom(&self) -> &[String; 2] {
@@ -227,7 +252,7 @@ impl Game {
             || game
                 .custom
                 .iter()
-                .any(|s| s.is_empty() || clean_text(s, 48) != *s)
+                .any(|s| s.is_empty() || clean_text(s, MAX_EXTREME) != *s)
         {
             return Self::new(seed);
         }
@@ -396,8 +421,8 @@ mod tests {
     fn saves_reject_corruption_and_custom_labels_are_bounded() {
         let mut g = Game::new(8);
         assert!(!g.set_custom("  ", "B"));
-        assert!(g.set_custom(&"界".repeat(100), "  Night\n  "));
-        assert_eq!(g.view().left.chars().count(), 48);
+        assert!(g.set_custom(&"界".repeat(200), "  Night\n  "));
+        assert_eq!(g.view().left.chars().count(), MAX_EXTREME);
         assert_eq!(g.view().right, "Night");
         let data = g.encode();
         assert_eq!(Game::decode(&data, 0).encode(), data);
@@ -437,5 +462,53 @@ mod tests {
         assert_eq!(g.view().guess, 0.98);
         assert!(!g.set_guess(f32::NAN));
         assert_eq!(g.view().guess, 0.98);
+    }
+
+    #[test]
+    fn editing_displayed_sides_preserves_opposite_side_target_guess_and_phase() {
+        let mut g = Game::new(4);
+        g.reversed = true;
+        let right = g.view().right.to_owned();
+        let target = g.target;
+        assert!(g.edit_side(0, "  Anything I want  "));
+        assert_eq!(g.view().left, "Anything I want");
+        assert_eq!(g.view().right, right);
+        assert_eq!(g.view().phase, Phase::Ready);
+        assert_eq!(g.target, target);
+        assert_eq!(g.view().target, None);
+        g.advance();
+        assert!(g.edit_side(1, "A different idea"));
+        assert_eq!(g.view().target, Some(target));
+        assert_eq!(g.view().phase, Phase::Peek);
+        g.advance();
+        let handoff = g.encode();
+        assert!(!g.edit_side(0, "Blocked during handoff"));
+        assert_eq!(g.encode(), handoff);
+        g.advance();
+        g.set_guess(0.73);
+        assert!(g.edit_side(0, "Frio de inverno"));
+        assert_eq!(g.view().phase, Phase::Guess);
+        assert_eq!(g.view().target, None);
+        assert_eq!(g.view().guess, 0.73);
+        assert_eq!(g.view().round, 1);
+        g.advance();
+        assert_eq!(g.view().target, Some(target));
+        assert!(g.edit_side(1, "Calor de verão"));
+        assert_eq!(g.view().phase, Phase::Result);
+        assert_eq!(Game::decode(&g.encode(), 0).encode(), g.encode());
+    }
+
+    #[test]
+    fn empty_unchanged_and_invalid_side_edits_do_not_mutate_a_round() {
+        let mut g = Game::new(5);
+        let original = g.encode();
+        let left = g.view().left.to_owned();
+        for (side, text) in [(0, " \n\t "), (2, "Invalid"), (0, left.as_str())] {
+            assert!(!g.edit_side(side, text));
+            assert_eq!(g.encode(), original);
+        }
+        assert!(g.edit_side(1, &"🌞".repeat(500)));
+        assert_eq!(g.view().right.chars().count(), MAX_EXTREME);
+        assert!(g.encode().len() < 4096);
     }
 }
