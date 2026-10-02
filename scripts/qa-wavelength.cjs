@@ -73,7 +73,7 @@ const base = process.env.JARCADE_QA_URL || 'http://127.0.0.1:8091';
   await next(page, 'Peek'); await next(page, 'Handoff'); await hidden(page); await idle(page);
   await next(page, 'Guess'); await hidden(page);
   await click(page, 280, 310); await page.getByRole('textbox', {name: 'Second extreme'}).fill('A completely different idea');
-  await page.getByRole('textbox', {name: 'Second extreme'}).press('Enter');
+  await click(page, 100, 420); // Finishing an edit by tapping the dial must not move its needle.
   await phase(page, 'Guess'); await hidden(page); assert.equal((await save(page)).target, target);
   assert.equal((await save(page)).guess, .5);
   // Arrow keys are processed immediately, Shift makes a larger step.

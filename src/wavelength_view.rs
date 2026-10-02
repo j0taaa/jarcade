@@ -489,7 +489,7 @@ impl WavelengthPage {
         // A dial drag owns its pointer until release; crossing the button never confirms.
         let was_drag = self.drag.is_some();
         let mut pulse = None;
-        if phase == Phase::Guess && self.editing.is_none() {
+        if phase == Phase::Guess && self.editing.is_none() && !self.editor_completed {
             if !self.blocked && self.drag.is_none() && press.is_some_and(|p| dial.contains(p)) {
                 let id = touches()
                     .iter()
