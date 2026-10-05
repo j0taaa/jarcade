@@ -1,7 +1,7 @@
 # Jarcade
 
 A small Rust / Macroquad arcade with shared game and UI code for desktop, web,
-Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, and Wavelength.
+Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, and Table tennis.
 
 Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa/jarcade>. Hosting uses this PC and the
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
@@ -236,7 +236,7 @@ node --test scripts/*.test.cjs
 bash scripts/build-web.sh
 ```
 
-Rust tests cover Snake, Minesweeper, Fih, and Wavelength rules and edge cases, first-move safety,
+Rust tests cover Snake, Minesweeper, Fih, Table tennis, and Wavelength rules and edge cases, first-move safety,
 flood fill, chording, deterministic placement, FPS measurement,
 frame-independent timing, input event ordering/modifiers, Wavelength handoff privacy, saves and dial projection, fast swipes/taps, continuous
 Snake trails and head rotation, offline pet care, purchases, save validation,
@@ -259,6 +259,8 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih-keyboard.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer-layouts.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
+# Table tennis image checks also require Python with Pillow and numpy:
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-table-tennis.cjs
 ```
 
 Use `JARCADE_QA_URL` for another server and `JARCADE_CHROME` for an installed
@@ -283,8 +285,8 @@ shared screens. Platform glue lives in `src/platform.rs` and `web/platform.js`.
 Bundled Inter fonts and the Macroquad loader have their licenses alongside them.
 See `assets/README.md` and `web/vendor/README.md` for provenance.
 
-Game cards use two columns on portrait phones, three on tablets or short wide
-screens, and four on wide desktops.
+Game cards use two columns on portrait phones, three on tablets, and four on
+wide desktops. Short landscape screens use four columns for the solo collection.
 The iOS bundle opts into [ProMotion](https://developer.apple.com/documentation/bundleresources/information-property-list/cadisableminimumframedurationonphone);
 the Metal view requests the attached screen’s maximum refresh rate. Native mobile
 refresh behavior still requires physical-device verification.
@@ -402,3 +404,11 @@ conservation, complete matches, all/mixed/no-correct scoring, the three-player
 variant, deck recycling, private projections, simultaneous actions, revoked
 connections, stale phases, and persistence/reconnect. Browser QA additionally
 plays full matches through separate sessions and verifies idle rendering.
+
+## Table tennis
+
+Choose **Single player → Table tennis**, or open `?game=table-tennis`. Play an offline match against the computer on Easy, Normal, or Hard. Move the racket with your mouse or drag a finger on the table; the racket sits slightly ahead of a finger so it stays visible. Arrow keys and WASD also work. Shots cross the net and bounce before a return. Contact near the racket’s edge angles your return; longer rallies become faster.
+
+Matches are first to 11, with a two-point lead. Service changes every two points, then every point at deuce. Tap **Serve** between points; **Space** serves, pauses, or resumes. Backgrounding or resizing pauses the rally without advancing unseen play. Short landscape screens rotate the court. Normal play renders at the display cadence; power saver keeps the court black and uses fewer renders while preserving the same physics. Ready, paused, and point screens stop redrawing, including with the FPS counter enabled.
+
+Rules and CPU logic live in `src/table_tennis.rs`; the shared vector renderer and pointer controls live in `src/table_tennis_view.rs`. Tests cover service, deuce, net clearance, bounces, misses, return timing, difficulty, interruptions, pointer bounds, display-independent simulation, and responsive geometry.

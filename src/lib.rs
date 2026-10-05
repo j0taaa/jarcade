@@ -15,5 +15,6 @@ pub mod settings;
 pub mod snake;
 pub mod snake_input;
 pub mod snake_motion;
+pub mod table_tennis;
 pub mod timing;
 pub mod wavelength;

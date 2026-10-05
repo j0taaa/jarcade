@@ -8,6 +8,7 @@ mod online_net;
 mod online_style;
 mod online_view;
 mod platform;
+mod table_tennis_view;
 mod ui;
 mod wavelength_view;
 
@@ -36,6 +37,7 @@ enum Screen {
     Fih,
     Multiplayer,
     Wavelength,
+    Tennis,
 }
 #[derive(Clone, Copy)]
 enum Action {
@@ -48,6 +50,7 @@ enum Action {
     NewCourt,
     NewReverie,
     NewWavelength,
+    NewTennis,
     TogglePause,
     TogglePower,
     ToggleHaptics,
@@ -95,6 +98,7 @@ struct App {
     fih_preview: FihPreview,
     online: online_view::OnlinePage,
     wavelength: wavelength_view::WavelengthPage,
+    tennis: table_tennis_view::TennisPage,
     previous_body: Vec<Cell>,
     render_body: Vec<Vec2>,
     multiplayer: bool,
@@ -112,6 +116,7 @@ impl App {
             screen: Screen::Home,
             online: online_view::OnlinePage::new(),
             wavelength: wavelength_view::WavelengthPage::new(seed()),
+            tennis: table_tennis_view::TennisPage::new(seed()),
             settings,
             game: Snake::new(seed()),
             clock: TickClock::default(),
@@ -158,6 +163,7 @@ impl App {
         match action {
             Action::None => return false,
             Action::Home => {
+                self.tennis.interrupt();
                 self.online.suspend();
                 if self.screen == Screen::Wavelength {
                     self.wavelength.interrupt();
@@ -169,6 +175,7 @@ impl App {
                 self.screen = Screen::Home;
             }
             Action::Settings => {
+                self.tennis.interrupt();
                 self.fih.interrupt();
                 self.game.pause();
                 self.screen = Screen::Settings;
@@ -202,6 +209,13 @@ impl App {
                 self.mines.cancel_gesture();
                 self.wavelength.enter();
                 self.screen = Screen::Wavelength;
+            }
+            Action::NewTennis => {
+                self.game.pause();
+                self.online.suspend();
+                self.mines.cancel_gesture();
+                self.tennis.enter(seed());
+                self.screen = Screen::Tennis;
             }
             Action::NewFih => {
                 self.game.pause();
@@ -237,6 +251,7 @@ impl App {
                 | Action::NewCourt
                 | Action::NewReverie
                 | Action::NewWavelength
+                | Action::NewTennis
         ) {
             ui.reset_focus();
         }
@@ -320,7 +335,7 @@ impl App {
     fn header(&mut self, ui: &mut Ui, layout: &Layout) -> Action {
         if matches!(
             self.screen,
-            Screen::Fih | Screen::Multiplayer | Screen::Wavelength
+            Screen::Fih | Screen::Multiplayer | Screen::Wavelength | Screen::Tennis
         ) {
             return Action::None;
         }
@@ -414,7 +429,7 @@ impl App {
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        let count = 3;
+        let count = if self.multiplayer { 3 } else { 4 };
         let grid = layout.game_grid_for(card_y, count);
         for index in 0..count {
             let card = grid.card(index);
@@ -455,13 +470,15 @@ impl App {
                 self.preview.draw(preview_rect);
             } else if index == 1 {
                 self.mines_preview.draw(preview_rect);
-            } else {
+            } else if index == 2 {
                 self.fih_preview.draw(preview_rect);
+            } else {
+                table_tennis_view::preview(ui, preview_rect);
             }
             let title = if self.multiplayer {
                 ["Coupe", "Dicksit", "Wavelength"][index]
             } else {
-                ["Snake", "Minesweeper", "Fih"][index]
+                ["Snake", "Minesweeper", "Fih", "Table tennis"][index]
             };
             let title_size = (19.0 * (card.w - 24.0) / ui.text_width(title, 19.0, true)).min(19.0);
             ui.heading(
@@ -475,7 +492,7 @@ impl App {
                 if self.multiplayer {
                     ["Bluff · 2–6", "Stories · 3–8", "Local · 2+"][index]
                 } else {
-                    ["Classic", "Puzzle", "Pet"][index]
+                    ["Classic", "Puzzle", "Pet", "vs CPU"][index]
                 },
                 card.x + 12.0,
                 card.y + image_height + 46.0,
@@ -515,8 +532,10 @@ impl App {
                     Action::NewGame
                 } else if index == 1 {
                     Action::NewMines
-                } else {
+                } else if index == 2 {
                     Action::NewFih
+                } else {
+                    Action::NewTennis
                 };
             }
         }
@@ -778,6 +797,10 @@ async fn main() {
         app.screen = Screen::Wavelength;
         app.multiplayer = true;
     }
+    if app.screen == Screen::Home && platform::launch_table_tennis() {
+        app.tennis.enter(seed());
+        app.screen = Screen::Tennis;
+    }
     platform::appearance(app.settings.power_saver, app.screen == Screen::Wavelength);
     let timer = platform::WakeTimer::new();
     let subscriber = macroquad::input::utils::register_input_subscriber();
@@ -796,6 +819,7 @@ async fn main() {
         let web_interrupted = platform::web_interrupted();
         if input.interrupted || web_interrupted {
             app.game.pause();
+            app.tennis.interrupt();
             app.fih.interrupt();
             if app.screen == Screen::Wavelength {
                 app.wavelength.interrupt();
@@ -832,6 +856,9 @@ async fn main() {
                 } else {
                     Action::None
                 }
+            } else if app.screen == Screen::Tennis && app.tennis.needs_frame() {
+                app.tennis.interrupt();
+                Action::None
             } else if app.screen == Screen::Game && app.game.status() == Status::Running {
                 Action::TogglePause
             } else {
@@ -865,6 +892,15 @@ async fn main() {
                 }
                 if back { Action::Home } else { Action::None }
             }
+            Screen::Tennis => {
+                let (back, pulse) =
+                    app.tennis
+                        .draw(&mut ui, input.pointer, &input.keys, frame_start);
+                if let Some(pulse) = pulse {
+                    app.pulse(pulse, frame_start);
+                }
+                if back { Action::Home } else { Action::None }
+            }
             Screen::Home => app.home(&mut ui, &layout),
             Screen::Settings => app.settings_page(&mut ui, &layout),
             Screen::Game => app.game_page(&mut ui, &layout),
@@ -888,6 +924,7 @@ async fn main() {
             action = page_action;
         }
         let continuous = (app.screen == Screen::Game && app.game.status() == Status::Running)
+            || (app.screen == Screen::Tennis && app.tennis.needs_frame())
             || (app.screen == Screen::Mines && app.mines.needs_frame())
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
             || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
@@ -904,13 +941,13 @@ async fn main() {
                 screen_width() - 86.0,
                 if app.screen == Screen::Fih {
                     screen_height() - 25.0
-                } else if app.screen == Screen::Wavelength {
+                } else if matches!(app.screen, Screen::Wavelength | Screen::Tennis) {
                     screen_height() - 18.0
                 } else {
                     screen_height() - 27.0
                 },
                 78.0,
-                if app.screen == Screen::Wavelength {
+                if matches!(app.screen, Screen::Wavelength | Screen::Tennis) {
                     14.0
                 } else {
                     21.0
@@ -944,6 +981,7 @@ async fn main() {
                     app.fih.revision,
                     app.online.revision,
                     app.wavelength.revision,
+                    app.tennis.game.revision,
                     app.multiplayer,
                 ),
                 app.fih.round.as_ref().map(|r| {
@@ -961,11 +999,13 @@ async fn main() {
             let message = match app.screen {
                 Screen::Multiplayer => app.online.announcement(),
                 Screen::Wavelength => app.wavelength.announcement(),
+                Screen::Tennis => app.tennis.announcement(),
                 Screen::Home => {
                     if app.multiplayer {
                         "Jarcade. Multiplayer. Select Coupe, Dicksit, or Wavelength. Coupe and Dicksit use online rooms; Wavelength is local on this device.".to_owned()
                     } else {
-                        "Jarcade. Games. Select Snake, Minesweeper, or Fih to play.".to_owned()
+                        "Jarcade. Games. Select Snake, Minesweeper, Fih, or Table tennis to play."
+                            .to_owned()
                     }
                 }
                 Screen::Settings => format!(
@@ -1002,7 +1042,8 @@ async fn main() {
                 // Queue the next vsync/rAF directly, without a second timer or FPS cap.
                 Some(0.0)
             }
-        } else if (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
+        } else if (app.screen == Screen::Tennis && app.tennis.needs_frame())
+            || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
         {
             Some(if app.settings.power_saver {

@@ -643,6 +643,12 @@ pub fn copy_invite(game: jarcade::multiplayer::GameKind, room: &str) {
     let _ = (game, room);
 }
 pub fn launch_wavelength() -> bool {
+    launch_local_game("wavelength")
+}
+pub fn launch_table_tennis() -> bool {
+    launch_local_game("table-tennis")
+}
+fn launch_local_game(game: &str) -> bool {
     #[cfg(target_arch = "wasm32")]
     {
         let mut data = [0u8; 256];
@@ -650,10 +656,11 @@ pub fn launch_wavelength() -> bool {
         let n = unsafe { jarcade_invite_load(data.as_mut_ptr(), data.len()) }.min(data.len());
         serde_json::from_slice::<serde_json::Value>(&data[..n])
             .ok()
-            .is_some_and(|v| v["game"] == "wavelength")
+            .is_some_and(|v| v["game"] == game)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let _ = game;
         false
     }
 }

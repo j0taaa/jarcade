@@ -37,7 +37,9 @@ impl Layout {
         self.game_grid_for(top, 3)
     }
     pub fn game_grid_for(&self, top: f32, count: usize) -> GameGrid {
-        let columns = if self.content.w >= 960.0 {
+        let columns = if self.content.w >= 960.0
+            || (count == 4 && self.landscape && self.content.w >= 480.)
+        {
             4
         } else if self.content.w >= 600.0 || (self.landscape && self.content.w >= 480.) {
             3
@@ -95,6 +97,140 @@ impl Layout {
             } else {
                 vec2(width / 2.0, board_y + size + 70.0)
             },
+        }
+    }
+}
+
+/// Rotate the table on short landscape screens so the play area stays large.
+pub struct TableLayout {
+    pub table: Rect,
+    pub score: Rect,
+    pub landscape: bool,
+}
+impl TableLayout {
+    pub fn new(width: f32, height: f32) -> Self {
+        let landscape = width > height * 1.3 && height < 620.;
+        let (table, score) = if landscape {
+            let w = (width - 174.).min((height - 82.) / 0.62).min(900.);
+            (
+                Rect::new(
+                    162. + (width - 174. - w) / 2.,
+                    68. + (height - 82. - w * 0.62) / 2.,
+                    w,
+                    w * 0.62,
+                ),
+                Rect::new(12., 85., 138., 78.),
+            )
+        } else {
+            let w = (width - 32.).min((height - 154.) * 0.62).min(520.);
+            (
+                Rect::new(
+                    (width - w) / 2.,
+                    114. + (height - 154. - w / 0.62) / 2.,
+                    w,
+                    w / 0.62,
+                ),
+                Rect::new((width - 240.) / 2., 64., 240., 40.),
+            )
+        };
+        Self {
+            table,
+            score,
+            landscape,
+        }
+    }
+    pub fn point(&self, point: Vec2) -> Vec2 {
+        if self.landscape {
+            self.table.point() + vec2(point.y * self.table.w, (1. - point.x) * self.table.h)
+        } else {
+            self.table.point() + vec2(point.x * self.table.w, point.y * self.table.h)
+        }
+    }
+    pub fn local(&self, point: Vec2, finger: bool) -> Vec2 {
+        let p = point - self.table.point();
+        if self.landscape {
+            vec2(
+                1. - p.y / self.table.h,
+                (p.x - if finger { 26. } else { 0. }) / self.table.w,
+            )
+        } else {
+            vec2(
+                p.x / self.table.w,
+                (p.y - if finger { 26. } else { 0. }) / self.table.h,
+            )
+        }
+    }
+    pub fn unit(&self) -> f32 {
+        if self.landscape {
+            self.table.h
+        } else {
+            self.table.w
+        }
+    }
+    pub fn racket_point(&self, point: Vec2) -> Vec2 {
+        self.point(point) - vec2(0., crate::table_tennis::RACKET_HEIGHT * self.unit())
+    }
+    pub fn racket_local(&self, point: Vec2, finger: bool) -> Vec2 {
+        self.local(
+            point + vec2(0., crate::table_tennis::RACKET_HEIGHT * self.unit()),
+            finger,
+        )
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+    #[test]
+    fn table_and_score_fit_and_pointer_mapping_survives_rotation() {
+        for (w, h) in [
+            (280., 360.),
+            (320., 480.),
+            (390., 844.),
+            (568., 320.),
+            (844., 390.),
+            (768., 1024.),
+            (1440., 900.),
+        ] {
+            let l = TableLayout::new(w, h);
+            for r in [l.table, l.score] {
+                assert!(r.x >= 0. && r.y >= 64. && r.right() <= w && r.bottom() <= h - 12.);
+            }
+            assert!(!l.table.overlaps(&l.score));
+            let point = vec2(0.7, 0.84);
+            assert!(l.local(l.point(point), false).distance(point) < 0.00001);
+            let offset = if l.landscape {
+                vec2(26., 0.)
+            } else {
+                vec2(0., 26.)
+            };
+            assert!(l.local(l.point(point) + offset, true).distance(point) < 0.00001);
+            assert!(l.racket_local(l.racket_point(point), false).distance(point) < 0.00001);
+            assert!(
+                l.racket_local(l.racket_point(point) + offset, true)
+                    .distance(point)
+                    < 0.00001
+            );
+        }
+    }
+    #[test]
+    fn four_solo_cards_fit_short_landscape_and_portrait_screens() {
+        for (w, h, top) in [
+            (280., 360., 132.),
+            (320., 480., 132.),
+            (390., 844., 238.),
+            (568., 320., 132.),
+            (844., 390., 132.),
+            (768., 1024., 238.),
+            (1440., 900., 238.),
+        ] {
+            let l = Layout::new(w, h);
+            let grid = l.game_grid_for(top, 4);
+            for index in 0..4 {
+                let card = grid.card(index);
+                assert!(card.bottom() <= h && card.right() <= w);
+                assert!(card.w >= 112. && card.h >= 100.);
+            }
         }
     }
 }

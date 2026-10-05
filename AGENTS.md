@@ -14,3 +14,5 @@
 - Keep multiplayer playful and minimal: Coupe is a woodland card table with coin chips and role-colored actions; Dicksit is a lilac dream gallery with framed pictures and a clear clue. Avoid generic form-like game screens and decorative clutter.
 
 - Wavelength is offline multiplayer on one device: private target peek, concealed handoff, draggable guessing dial, then an unscored reveal. Preserve the reference flow, prompt decks/custom spectra, directly editable sides, high-DPI vectors, and event-driven idle screens; use a warm cream Wavelength background and true black in power saver; never open a room connection.
+
+- Table tennis is offline single player against a bounded-speed computer: finger/mouse rackets, legal net-crossing shots and bounces, three difficulties, first to 11 with a two-point lead, and alternating service. Keep physics independent of refresh rate, pause on interruptions, and rotate the court on short landscape screens.
