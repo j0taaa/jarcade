@@ -1,7 +1,7 @@
 # Jarcade
 
 A small Rust / Macroquad arcade with shared game and UI code for desktop, web,
-Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, and Table tennis.
+Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, Table tennis, and Wolvesville.
 
 Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa/jarcade>. Hosting uses this PC and the
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
@@ -21,7 +21,7 @@ bash scripts/build-web.sh
 cargo run --release --features server --bin jarcade-server
 ```
 
-Open <http://localhost:8091>. A plain static server can run solo games and local Wavelength; online Coupe and Dicksit require the room service. To update the public site:
+Open <http://localhost:8091>. A plain static server can run solo games and local Wavelength; online Coupe, Dicksit, and Wolvesville require the room service. To update the public site:
 
 ```sh
 host-app proxy jarcade 8091
@@ -58,7 +58,7 @@ order. Keyboard, touch buttons, and short 8-point swipes are handled before
 the game tick; even complete gestures between frames are preserved.
 Actual FPS
 depends on the browser, operating system, and hardware. Both modes use an event-driven loop:
-menus and paused/finished rounds have no recurring application timer. There is
+menus and paused/finished rounds have no recurring application timer. Active Wolvesville phases redraw their countdown once a second; the server sleeps until the next phase deadline. There is
 no audio, network polling, or multisampling. Multiplayer uses event-driven WebSockets, with control-frame heartbeats once a minute that do not redraw the interface.
 
 Background/focus changes and long timing gaps pause play rather than advancing
@@ -258,6 +258,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih-keyboard.cjs
 # With the room service on port 8091:
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer-layouts.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-wolves.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-table-tennis.cjs
@@ -366,13 +367,21 @@ Artwork and full prompts: [assets/reverie/README.md](assets/reverie/README.md).
 Tap a clue to read it in full. On short wide displays, scores and clue move beside the picture gallery. Tap a picture for a large preview; Select then confirm with the fixed bottom
 button. Browse by swipe, wheel, arrows or Page Up/Down. Drags and multi-touch
 never select cards. Coupe's table scrolls on small displays. Tab/Shift+Tab and
-Enter navigate controls. Web uses the phone/desktop text keyboard; Android provides an in-game touch keyboard because its Miniquad backend has no text IME. The ? button explains rules and original role names.
+Enter navigate controls. Web uses the phone/desktop text keyboard; Native Android and iOS provide an in-game touch keyboard for the shared text controls. The ? button explains rules and original role names.
 
 These are independent adaptations with original names, interface, wording and
 artwork; neither publisher's logos or card images are bundled. Rule references:
 [Coup publisher](https://indieboardsandcards.com/our-games/coup/),
 [Coup rules transcription](https://artofthegame.github.io/coup/rulebook.pdf),
 [official Dixit 2021 rules](https://cdn.svc.asmodee.net/production-libellud/uploads/2022/03/DIXIT_REFRESH_RULES_US-UK-AU_BD.pdf).
+
+**Wolvesville** (6–16 players) is a private-room social deduction adaptation with original vector portraits. Open `?game=wolves`, create a room, and invite friends on their own devices. The host can choose **Classic**, **Advanced**, or **Custom** in **Roles** before starting. Presets adapt to the player count; Custom has a role-count editor and ability previews. Setups need one role per seat, at least one wolf, more non-wolves than wolves, and no duplicated special roles. Changing a setup resets guests’ readiness.
+
+Available roles: Villager, Werewolf, Seer, Doctor, Bodyguard, Gunner, Fool, Wolf seer, Serial killer, Aura seer, Medium, Witch, Avenger, Alpha werewolf, Junior werewolf, and Tough guy. Advanced presets introduce weighted pack votes, revenge marks, potions, revival, and delayed injury. The in-game **?** and **My role** panels explain each ability, remaining charges, private findings, and the public role pool. Rule reference: [official Wolvesville role descriptions](https://www.wolvesville.com/en/).
+
+Night → Dawn → Discussion → Vote use 45/12/75/35-second deadlines, or advance early when every living player confirms. Select portraits, then explicitly lock your ability and separate pack hunt/poison choice. Wolves’ hunt votes use a unique plurality; the Alpha counts twice. Day executions require a strict majority of living players. Current votes remain hidden until resolved. The village wins after wolves and the serial killer are gone; wolves win at parity unless the killer remains; the Fool wins if voted out; the serial killer must be the final survivor. Forty uneventful days end in a draw.
+
+Village, pack, and ghost channels enforce speaking and reading permissions on the server. The Medium’s night messages to ghosts are anonymous. Roles, findings, powers, and pack choices are projected per seat; death and the end of the match reveal roles. Back/disconnect preserves a seat and locked actions; explicit Leave forfeits. Timers continue without connected clients and survive server restarts, advancing only one overdue phase on recovery. The client updates the countdown at 1 Hz without a render loop on lobbies or finished matches. This version focuses on friends’ rooms and the listed roles, rather than public matchmaking, ranked modes, or the official app’s account features.
 
 ### Room service
 
@@ -390,13 +399,13 @@ Server dependencies are gated by `--features server`, outside the mobile/web
 app. Android needs INTERNET permission (declared) and the NDK for Rustls/ring.
 
 The server validates membership, phase, legal actions, and card ownership;
-clients receive only their own hidden cards. Votes and decoy owners remain
+clients receive only their own hidden cards and permitted roles, findings, and chat channels. Votes and decoy owners remain
 secret until scoring. Each device stores a private bearer reconnect token;
 invite URLs contain only the public game/room. Tokens and full shuffled game
 state are saved atomically in `rooms.json` with mode 0600, outside static files.
 The service prunes rooms inactive for 24 hours, caps rooms, messages and frames,
 and checks browser WebSocket origins. Local saves and host backups contain
-private seats/decks and must remain private. The room host supplies availability;
+private seats/decks/roles and must remain private. The room host supplies availability;
 this is a friends' room service, with no public matchmaking or accounts.
 
 Tests cover challenges, double influence loss, blocks, forced coups, card

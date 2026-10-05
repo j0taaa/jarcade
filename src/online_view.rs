@@ -11,7 +11,7 @@ use jarcade::{
     layout::touch_point,
     multiplayer::{
         ClientMessage, Command, GameKind, RoomView, ServerMessage, Session, clean_text, coup,
-        reverie,
+        reverie, wolves,
     },
 };
 use macroquad::prelude::*;
@@ -39,13 +39,14 @@ pub struct OnlinePage {
     confirm_leave: bool,
     pan: BoardPan,
     blocked_touch: bool,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     keyboard_pan: BoardPan,
     preview: Option<u8>,
     selected: Vec<u8>,
     exchange: Vec<usize>,
     target: Option<coup::Action>,
     sent: Option<u64>,
+    wolves_ui: crate::wolves_view::WolvesUi,
 }
 impl OnlinePage {
     pub fn new() -> Self {
@@ -69,24 +70,27 @@ impl OnlinePage {
             confirm_leave: false,
             pan: BoardPan::default(),
             blocked_touch: false,
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_os = "ios"))]
             keyboard_pan: BoardPan::default(),
             preview: None,
             selected: vec![],
             exchange: vec![],
             target: None,
             sent: None,
+            wolves_ui: crate::wolves_view::WolvesUi::default(),
         }
     }
     pub fn enter(&mut self, game: GameKind, code: Option<String>) {
         self.suspend();
         self.game = game;
+        self.wolves_ui = crate::wolves_view::WolvesUi::default();
         self.room = None;
         self.help = false;
         self.clue_open = false;
         self.confirm_leave = false;
         self.error.clear();
         self.fields[1] = code.unwrap_or_default();
+        self.fields[2].clear();
         self.pan = BoardPan::default();
         self.selected.clear();
         self.exchange.clear();
@@ -150,8 +154,9 @@ impl OnlinePage {
     }
     pub fn poll(&mut self) {
         while let Some(edit) = platform::editor_poll() {
-            if edit.id < 3 {
-                self.fields[edit.id] = if edit.id == 1 {
+            let id = if edit.id == 5 { 2 } else { edit.id };
+            if id < 3 {
+                self.fields[id] = if id == 1 {
                     edit.text
                         .to_ascii_uppercase()
                         .chars()
@@ -159,7 +164,7 @@ impl OnlinePage {
                         .take(6)
                         .collect()
                 } else {
-                    clean_text(&edit.text, if edit.id == 0 { 24 } else { 160 })
+                    clean_text(&edit.text, if id == 0 { 24 } else { 160 })
                 };
                 if edit.done {
                     self.editing = None;
@@ -221,12 +226,15 @@ impl OnlinePage {
                 ServerMessage::State { room } => {
                     let phase = phase_key(&room);
                     if self.room.as_ref().map(phase_key) != Some(phase) {
+                        self.wolves_ui.phase_changed();
                         self.selected.clear();
                         self.exchange.clear();
                         self.target = None;
                         self.preview = None;
                         self.clue_open = false;
-                        self.fields[2].clear();
+                        if self.game != GameKind::Wolves {
+                            self.fields[2].clear();
+                        }
                         self.pan = BoardPan::default();
                         self.close_editor();
                     }
@@ -249,11 +257,23 @@ impl OnlinePage {
         }
     }
     pub fn needs_frame(&self) -> bool {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         if self.keyboard_pan.active() {
             return true;
         }
-        self.art.loading() || self.pan.active()
+        self.art.loading() || self.pan.active() || self.wolves_ui.active()
+    }
+    pub fn delay(&self) -> Option<f64> {
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        if self.editing.is_some() {
+            return None;
+        }
+        self.room
+            .as_ref()
+            .filter(|_| self.connected && !self.help && !self.confirm_leave)
+            .and_then(|r| r.wolves.as_ref())
+            .filter(|g| g.phase != wolves::Phase::Finished)
+            .map(|_| 1.0)
     }
     pub fn announcement(&self) -> String {
         let mut text = format!("Jarcade. {}. ", self.game.title());
@@ -285,7 +305,20 @@ impl OnlinePage {
                         .collect::<Vec<_>>()
                         .join(". "),
                 );
+            } else if let Some(g) = &room.wolves {
+                text.push_str(&format!(
+                    "{} {}. Your role: {}. {} alive. {} ",
+                    g.phase.title(),
+                    g.day,
+                    g.role.title(),
+                    g.alive,
+                    g.events.last().map_or("", String::as_str)
+                ));
+                text.push_str(&self.wolves_ui.announcement());
             } else {
+                if room.game == GameKind::Wolves {
+                    text.push_str(&self.wolves_ui.announcement());
+                }
                 text.push_str("Lobby. Ready, then the host starts.");
             }
         } else {
@@ -310,6 +343,9 @@ impl OnlinePage {
     }
     pub fn back(&mut self) -> bool {
         self.revision += 1;
+        if self.wolves_ui.close_setup() {
+            return false;
+        }
         if self.clue_open {
             self.clue_open = false;
             self.pan = BoardPan::default();
@@ -364,13 +400,17 @@ impl OnlinePage {
         if tap.is_some_and(|p| rect.contains(p)) || ui.keyboard_hit(rect) {
             self.editing = Some(id);
             ui.activated = true;
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_os = "ios"))]
             {
                 self.keyboard_pan = BoardPan::default();
             }
             platform::editor_open(
                 &self.fields[id],
-                id,
+                if id == 2 && self.game == GameKind::Wolves {
+                    5
+                } else {
+                    id
+                },
                 rect,
                 if id == 0 {
                     24
@@ -432,7 +472,7 @@ impl OnlinePage {
                 "Invite link copied when clipboard access is available. Share the room code too."
                     .into();
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         if self.editing.is_some() {
             self.draw_keyboard(ui, press, x, width);
             return false;
@@ -455,7 +495,7 @@ impl OnlinePage {
                 if self
                     .room
                     .as_ref()
-                    .is_some_and(|r| r.court.is_some() || r.reverie.is_some())
+                    .is_some_and(|r| r.court.is_some() || r.reverie.is_some() || r.wolves.is_some())
                 {
                     "Leaving ends your participation."
                 } else {
@@ -518,6 +558,20 @@ impl OnlinePage {
                 self.draw_court(ui, press, &room, game, x, width);
             } else if let Some(game) = &room.reverie {
                 self.draw_reverie(ui, press, &room, game, x, width);
+            } else if let Some(game) = &room.wolves {
+                let out = self.wolves_ui.draw(
+                    ui,
+                    press,
+                    &room,
+                    game,
+                    (&self.fields[2], self.editing == Some(2)),
+                    Rect::new(x, 66., width, screen_height() - 82.),
+                );
+                self.wolves_outcome(out);
+                self.error_banner(ui, x, width);
+            } else if self.wolves_ui.setup.is_some() {
+                let out = self.wolves_ui.draw_setup(ui, press, &room, x, width);
+                self.wolves_outcome(out);
             } else {
                 self.draw_lobby(ui, press, &room, x, width);
             }
@@ -525,6 +579,18 @@ impl OnlinePage {
             self.draw_join(ui, press, x, width);
         }
         false
+    }
+    fn wolves_outcome(&mut self, out: crate::wolves_view::Outcome) {
+        if let Some(rect) = out.editor {
+            self.editing = Some(2);
+            platform::editor_open(&self.fields[2], 5, rect, 160);
+        }
+        if let Some(command) = out.command {
+            self.play(command);
+        }
+        if out.clear_chat {
+            self.fields[2].clear();
+        }
     }
     fn draw_join(&mut self, ui: &mut Ui, press: Option<Vec2>, x: f32, width: f32) {
         let wide = width >= 800.;
@@ -582,6 +648,8 @@ impl OnlinePage {
         }
         if self.game == GameKind::Court {
             card_art::preview(ui, art);
+        } else if self.game == GameKind::Wolves {
+            crate::wolves_art::preview(ui, art);
         } else {
             self.art.preview(ui, art);
         }
@@ -595,6 +663,8 @@ impl OnlinePage {
         );
         let tagline = if self.game == GameKind::Court {
             "A little charm. A lot of bluff."
+        } else if self.game == GameKind::Wolves {
+            "Friendly faces. Hidden fangs."
         } else {
             "One picture. A thousand stories."
         };
@@ -635,7 +705,11 @@ impl OnlinePage {
             if self.connecting {
                 "Connecting…"
             } else {
-                "Create a table"
+                if self.game == GameKind::Wolves {
+                    "Create a village"
+                } else {
+                    "Create a table"
+                }
             },
             Rect::new(fx, y + 104., fw, 52.),
             enabled,
@@ -712,7 +786,12 @@ impl OnlinePage {
         let count = room.members.len().max(self.game.limits().0);
         let row_h = if cols == 2 { 94. } else { 68. };
         let roster_h = count.div_ceil(cols) as f32 * row_h;
-        let total = 158. + roster_h + 196.;
+        let role_h = if self.game == GameKind::Wolves {
+            58.
+        } else {
+            0.
+        };
+        let total = 158. + role_h + roster_h + 196.;
         let viewport = Rect::new(x, 66., width, screen_height() - 82.);
         let (origin, tap) = page_input(
             &mut self.pan,
@@ -725,7 +804,11 @@ impl OnlinePage {
         let ticket = Rect::new(x, origin.y + 4., width, 120.);
         bordered(ticket, 24., ui.theme.line, ui.theme.panel);
         ui.centered(
-            "YOUR TABLE",
+            if self.game == GameKind::Wolves {
+                "YOUR VILLAGE"
+            } else {
+                "YOUR TABLE"
+            },
             Rect::new(x, ticket.y + 12., width, 20.),
             10.,
             ui.theme.muted,
@@ -740,7 +823,11 @@ impl OnlinePage {
             ui.centered(&c.to_string(), r, 23., ui.theme.accent, true);
         }
         ui.centered(
-            "Share the code. Pull up a seat.",
+            if self.game == GameKind::Wolves {
+                "Share the code. Keep your role secret."
+            } else {
+                "Share the code. Pull up a seat."
+            },
             Rect::new(x, ticket.y + 84., width, 24.),
             13.,
             ui.theme.muted,
@@ -749,19 +836,39 @@ impl OnlinePage {
         for side in [x, x + width] {
             draw_circle(side, ticket.center().y, 7., ui.theme.bg);
         }
+        if self.game == GameKind::Wolves {
+            let preset = room
+                .wolves_setup
+                .as_ref()
+                .map_or(wolves::Preset::Advanced, |s| s.preset);
+            if button(
+                ui,
+                &format!("Roles · {:?}  ↗", preset),
+                Rect::new(x, origin.y + 134., width, 44.),
+                false,
+                tap,
+                viewport,
+            ) {
+                self.wolves_ui.open_setup(room);
+            }
+        }
         let gap = 10.;
         let sw = (width - gap * (cols - 1) as f32) / cols as f32;
         for i in 0..count {
             let r = Rect::new(
                 x + (i % cols) as f32 * (sw + gap),
-                origin.y + 146. + (i / cols) as f32 * row_h,
+                origin.y + 146. + role_h + (i / cols) as f32 * row_h,
                 sw,
                 row_h - 10.,
             );
             bordered(r, 18., ui.theme.line, ui.theme.bg);
             if let Some(m) = room.members.get(i) {
                 let avatar = vec2(r.x + 27., r.y + 25.);
-                style::avatar(ui, &m.name, i, avatar, 17.);
+                if self.game == GameKind::Wolves {
+                    crate::wolves_art::portrait(avatar, 18., i, None, ui.theme.saver);
+                } else {
+                    style::avatar(ui, &m.name, i, avatar, 17.);
+                }
                 fit(
                     ui,
                     &m.name,
@@ -829,7 +936,7 @@ impl OnlinePage {
                 );
             }
         }
-        let y = origin.y + 146. + roster_h + 8.;
+        let y = origin.y + 146. + role_h + roster_h + 8.;
         let me = &room.members[room.you];
         if button(
             ui,
@@ -847,7 +954,11 @@ impl OnlinePage {
         }
         if room.host == room.you {
             let can_start = room.members.len() >= self.game.limits().0
-                && room.members.iter().all(|m| m.ready && m.connected);
+                && room.members.iter().all(|m| m.ready && m.connected)
+                && room
+                    .wolves_setup
+                    .as_ref()
+                    .is_none_or(|s| s.roles_for(room.members.len()).is_ok());
             let pointer = ui.override_pointer(tap);
             if primary(
                 ui,
@@ -869,7 +980,11 @@ impl OnlinePage {
         }
         if button(
             ui,
-            "Leave table",
+            if self.game == GameKind::Wolves {
+                "Leave village"
+            } else {
+                "Leave table"
+            },
             Rect::new(x, y + 120., width, 44.),
             false,
             tap,
@@ -1842,8 +1957,8 @@ impl OnlinePage {
             self.preview = None;
         }
     }
-    /// Miniquad's Android backend has no text IME; provide shared-code touch keys.
-    #[cfg(target_os = "android")]
+    /// Provide shared touch keys on native mobile where no browser IME is available.
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     fn draw_keyboard(&mut self, ui: &mut Ui, press: Option<Vec2>, x: f32, width: f32) {
         let Some(id) = self.editing else {
             return;
@@ -1866,7 +1981,15 @@ impl OnlinePage {
         fit(
             ui,
             if self.fields[id].is_empty() {
-                ["Your name", "Room code", "Your clue"][id]
+                [
+                    "Your name",
+                    "Room code",
+                    if self.game == GameKind::Wolves {
+                        "Your message"
+                    } else {
+                        "Your clue"
+                    },
+                ][id]
             } else {
                 &self.fields[id]
             },
@@ -1938,6 +2061,14 @@ impl OnlinePage {
         let viewport = Rect::new(x, 66., width, screen_height() - 82.);
         let lines: Vec<String> = if self.game == GameKind::Court {
             vec!["Two influences. Be the last player with one hidden.".into(),"Claim any role, even when you are bluffing. Everyone may challenge a claim before allowing it. A truthful claim replaces the shown card; the challenger loses an influence. A bluff loses an influence and the action fails.".into(),"Income: +1, cannot be challenged or blocked. Foreign aid: +2, anyone may block as Regent. Coup: pay 7 to remove an influence, cannot be blocked. At 10 coins a Coup is mandatory.".into(),"Regent (Duke): Tax +3; blocks Foreign aid.".into(),"Shade (Assassin): pay 3 to remove an influence. Sentinel can block. The cost is paid even if blocked or challenged. A failed challenge followed by assassination can cost two influences.".into(),"Corsair (Captain): steal up to 2 coins. The target can block as Corsair or Envoy.".into(),"Envoy (Ambassador): draw 2 cards, choose your remaining influences, return the rest.".into(),"Sentinel (Contessa): blocks assassination.".into(),"Scroll to see the table, actions and recent turns. Tab/Enter select; arrows/Page Up/Down scroll. Other devices join with the room code. Back to the arcade saves your seat; Leave forfeits it. Reconnect resumes your hidden hand.".into()]
+        } else if self.game == GameKind::Wolves {
+            let mut rules = vec!["Invite 6–16 friends. The host chooses Classic, Advanced, or a custom role list in the lobby. Every setup needs at least one wolf and a larger non-wolf team. Each special role can appear once.".into(), "Night: choose a player for your ability and, for wolves, a separate hunt vote. Choices lock when confirmed. Alpha votes count twice; tied hunts spare everyone. Even if an actor dies, a locked night action resolves.".into(), "Dawn reveals losses. Discuss in village chat, then vote. A strict majority of living players is needed to eliminate someone. Votes stay secret until the phase ends. A timer prevents disconnected seats from stalling the game.".into(), "Wolves win at parity unless the serial killer remains. Village wins after all wolves and the serial killer are gone. The Fool wins alone if voted out; the serial killer wins as the last survivor.".into(), "Pack chat stays private; wolves speak there at night. Ghosts talk in their own channel. The Medium can speak anonymously to ghosts at night. You can keep reading while your ability is locked.".into(), "Tap a portrait, then confirm your choice. Use My role for findings, remaining powers, the public role list, and the last revealed vote. Back saves your reconnect seat; Leave forfeits it. Disconnected players remain in the game.".into()];
+            rules.extend(
+                wolves::ROLES
+                    .into_iter()
+                    .map(|r| format!("{}: {}", r.title(), r.description())),
+            );
+            rules
         } else {
             vec!["The storyteller chooses a secret picture and gives a clue: a phrase, sound, title, or anything that sparks an association.".into(),"Each other player submits one picture matching the clue. At three players, hands have seven pictures and each other player submits two.".into(),"The pictures are shuffled. Everyone except the storyteller votes for the storyteller’s picture. You cannot vote for your own picture.".into(),"Some, but not everyone, guess correctly: the storyteller and correct voters get 3. Everyone or nobody guesses correctly: the storyteller gets 0 and every other player gets 2.".into(),"Each vote on your decoy earns you 1 extra point. Finish the round when someone reaches 30. Highest score wins; ties share the win.".into(),"Refill hands, rotate the storyteller, and reuse discarded pictures when the deck is low. There are 84 original generated illustrations.".into(),"Tap a card for a full-size preview, choose it, then confirm using the bottom button. Swipe or scroll to browse. Tab/Enter select; arrows/Page Up/Down scroll. Back to the arcade saves your seat. Leaving ends the match; Reconnect resumes it.".into()]
         };
@@ -1974,11 +2105,13 @@ fn phase_key(r: &RoomView) -> String {
         format!("{}:{}:{}", r.epoch, g.phase, g.turn)
     } else if let Some(g) = &r.reverie {
         format!("{}:{}:{}", g.phase, g.round, g.storyteller)
+    } else if let Some(g) = &r.wolves {
+        format!("{:?}:{}", g.phase, g.day)
     } else {
         "lobby".into()
     }
 }
-fn button(
+pub(crate) fn button(
     ui: &mut Ui,
     text: &str,
     r: Rect,
@@ -2020,7 +2153,7 @@ fn button(
     ui.activated |= hit;
     hit
 }
-fn page_input(
+pub(crate) fn page_input(
     pan: &mut BoardPan,
     blocked: &mut bool,
     press: Option<Vec2>,
@@ -2088,7 +2221,7 @@ fn page_input(
     }
     (pan.board(viewport, content).point(), tap)
 }
-fn clip(viewport: Option<Rect>) {
+pub(crate) fn clip(viewport: Option<Rect>) {
     let dpi = screen_dpi_scale();
     // SAFETY: clipping is changed synchronously on the Macroquad render thread.
     unsafe {
@@ -2102,7 +2235,7 @@ fn clip(viewport: Option<Rect>) {
         }));
     }
 }
-fn fit(ui: &Ui, text: &str, r: Rect, size: f32, color: Color, bold: bool) {
+pub(crate) fn fit(ui: &Ui, text: &str, r: Rect, size: f32, color: Color, bold: bool) {
     if r.w < 4. {
         return;
     }
@@ -2119,7 +2252,7 @@ fn fit(ui: &Ui, text: &str, r: Rect, size: f32, color: Color, bold: bool) {
         ui.centered(&format!("{shortened}…"), r, size, color, bold);
     }
 }
-fn wrapped_lines(ui: &Ui, text: &str, width: f32, size: f32) -> Vec<String> {
+pub(crate) fn wrapped_lines(ui: &Ui, text: &str, width: f32, size: f32) -> Vec<String> {
     let mut lines = vec![];
     let mut line = String::new();
     for word in text.split_whitespace() {
@@ -2148,7 +2281,7 @@ fn wrapped_lines(ui: &Ui, text: &str, width: f32, size: f32) -> Vec<String> {
     }
     lines
 }
-fn wrap(ui: &Ui, text: &str, r: Rect, size: f32, color: Color, bold: bool) {
+pub(crate) fn wrap(ui: &Ui, text: &str, r: Rect, size: f32, color: Color, bold: bool) {
     for (i, line) in wrapped_lines(ui, text, r.w, size).iter().enumerate() {
         let y = r.y + size + i as f32 * (size + 9.);
         if y > r.bottom() {

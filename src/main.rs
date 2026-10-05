@@ -11,6 +11,8 @@ mod platform;
 mod table_tennis_view;
 mod ui;
 mod wavelength_view;
+mod wolves_art;
+mod wolves_view;
 
 use fih_view::{FihPage, FihPreview, Nav};
 use game_view::{Preview, draw_board};
@@ -49,6 +51,7 @@ enum Action {
     NewFih,
     NewCourt,
     NewReverie,
+    NewWolves,
     NewWavelength,
     NewTennis,
     TogglePause,
@@ -191,13 +194,15 @@ impl App {
                 self.mines.choose_size();
                 self.screen = Screen::Mines;
             }
-            Action::NewCourt | Action::NewReverie => {
+            Action::NewCourt | Action::NewReverie | Action::NewWolves => {
                 self.game.pause();
                 self.online.enter(
                     if matches!(action, Action::NewCourt) {
                         jarcade::multiplayer::GameKind::Court
-                    } else {
+                    } else if matches!(action, Action::NewReverie) {
                         jarcade::multiplayer::GameKind::Reverie
+                    } else {
+                        jarcade::multiplayer::GameKind::Wolves
                     },
                     None,
                 );
@@ -250,6 +255,7 @@ impl App {
                 | Action::NewFih
                 | Action::NewCourt
                 | Action::NewReverie
+                | Action::NewWolves
                 | Action::NewWavelength
                 | Action::NewTennis
         ) {
@@ -429,7 +435,7 @@ impl App {
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        let count = if self.multiplayer { 3 } else { 4 };
+        let count = 4;
         let grid = layout.game_grid_for(card_y, count);
         for index in 0..count {
             let card = grid.card(index);
@@ -463,8 +469,10 @@ impl App {
                     card_art::preview(ui, preview_rect);
                 } else if index == 1 {
                     self.online.art.preview(ui, preview_rect);
-                } else {
+                } else if index == 2 {
                     wavelength_view::preview(ui, preview_rect);
+                } else {
+                    wolves_art::preview(ui, preview_rect);
                 }
             } else if index == 0 {
                 self.preview.draw(preview_rect);
@@ -476,7 +484,7 @@ impl App {
                 table_tennis_view::preview(ui, preview_rect);
             }
             let title = if self.multiplayer {
-                ["Coupe", "Dicksit", "Wavelength"][index]
+                ["Coupe", "Dicksit", "Wavelength", "Wolvesville"][index]
             } else {
                 ["Snake", "Minesweeper", "Fih", "Table tennis"][index]
             };
@@ -490,7 +498,7 @@ impl App {
             );
             ui.label(
                 if self.multiplayer {
-                    ["Bluff · 2–6", "Stories · 3–8", "Local · 2+"][index]
+                    ["Bluff · 2–6", "Stories · 3–8", "Local · 2+", "6–16"][index]
                 } else {
                     ["Classic", "Puzzle", "Pet", "vs CPU"][index]
                 },
@@ -525,8 +533,10 @@ impl App {
                         Action::NewCourt
                     } else if index == 1 {
                         Action::NewReverie
-                    } else {
+                    } else if index == 2 {
                         Action::NewWavelength
+                    } else {
+                        Action::NewWolves
                     }
                 } else if index == 0 {
                     Action::NewGame
@@ -941,13 +951,19 @@ async fn main() {
                 screen_width() - 86.0,
                 if app.screen == Screen::Fih {
                     screen_height() - 25.0
-                } else if matches!(app.screen, Screen::Wavelength | Screen::Tennis) {
+                } else if matches!(
+                    app.screen,
+                    Screen::Wavelength | Screen::Tennis | Screen::Multiplayer
+                ) {
                     screen_height() - 18.0
                 } else {
                     screen_height() - 27.0
                 },
                 78.0,
-                if matches!(app.screen, Screen::Wavelength | Screen::Tennis) {
+                if matches!(
+                    app.screen,
+                    Screen::Wavelength | Screen::Tennis | Screen::Multiplayer
+                ) {
                     14.0
                 } else {
                     21.0
@@ -1002,7 +1018,7 @@ async fn main() {
                 Screen::Tennis => app.tennis.announcement(),
                 Screen::Home => {
                     if app.multiplayer {
-                        "Jarcade. Multiplayer. Select Coupe, Dicksit, or Wavelength. Coupe and Dicksit use online rooms; Wavelength is local on this device.".to_owned()
+                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, or Wolvesville. Coupe, Dicksit and Wolvesville use online rooms; Wavelength is local on this device.".to_owned()
                     } else {
                         "Jarcade. Games. Select Snake, Minesweeper, Fih, or Table tennis to play."
                             .to_owned()
@@ -1051,6 +1067,8 @@ async fn main() {
             } else {
                 0.0
             })
+        } else if app.screen == Screen::Multiplayer {
+            app.online.delay()
         } else if app.screen == Screen::Fih {
             app.fih.delay(frame_start, app.settings.power_saver)
         } else {

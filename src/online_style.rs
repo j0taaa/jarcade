@@ -23,6 +23,16 @@ pub fn palette(game: GameKind, saver: bool) -> (Color, Color, Color) {
             BLACK,
             color_u8!(57, 63, 47, 255),
         ),
+        (GameKind::Wolves, false) => (
+            color_u8!(81, 83, 135, 255),
+            color_u8!(246, 245, 253, 255),
+            color_u8!(225, 225, 242, 255),
+        ),
+        (GameKind::Wolves, true) => (
+            color_u8!(189, 196, 244, 255),
+            BLACK,
+            color_u8!(49, 51, 72, 255),
+        ),
         (GameKind::Reverie, true) => (
             color_u8!(203, 182, 244, 255),
             BLACK,
@@ -96,6 +106,8 @@ pub fn crown(center: Vec2, radius: f32, ink: Color) {
 pub fn emblem(game: GameKind, center: Vec2, radius: f32, ink: Color) {
     if game == GameKind::Court {
         crown(center, radius, ink);
+    } else if game == GameKind::Wolves {
+        crate::wolves_art::moon(center, radius, ink, if ink.r > 0.6 { BLACK } else { WHITE });
     } else {
         spark(center, radius, ink);
     }

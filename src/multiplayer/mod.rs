@@ -1,6 +1,7 @@
 //! Shared wire protocol and authoritative, renderer-independent card game rules.
 pub mod coup;
 pub mod reverie;
+pub mod wolves;
 
 use serde::{Deserialize, Serialize};
 
@@ -9,18 +10,21 @@ use serde::{Deserialize, Serialize};
 pub enum GameKind {
     Court,
     Reverie,
+    Wolves,
 }
 impl GameKind {
     pub fn title(self) -> &'static str {
         match self {
             Self::Court => "Coupe",
             Self::Reverie => "Dicksit",
+            Self::Wolves => "Wolvesville",
         }
     }
     pub fn limits(self) -> (usize, usize) {
         match self {
             Self::Court => (2, 6),
             Self::Reverie => (3, 8),
+            Self::Wolves => (6, 16),
         }
     }
 }
@@ -41,6 +45,8 @@ pub enum Command {
     Rematch,
     Court(coup::Move),
     Reverie(reverie::Move),
+    Wolves(wolves::Move),
+    WolvesSetup(wolves::Setup),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
@@ -75,6 +81,10 @@ pub struct RoomView {
     pub members: Vec<MemberView>,
     pub court: Option<coup::View>,
     pub reverie: Option<reverie::View>,
+    #[serde(default)]
+    pub wolves: Option<wolves::View>,
+    #[serde(default)]
+    pub wolves_setup: Option<wolves::Setup>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

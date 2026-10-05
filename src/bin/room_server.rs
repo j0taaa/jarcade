@@ -12,7 +12,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use jarcade::multiplayer::{
     self as mp, ClientMessage, Command, GameKind, MemberView, RoomView, ServerMessage, Session,
-    coup, reverie,
+    coup, reverie, wolves,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -25,7 +25,7 @@ use std::{
     },
     time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tower_http::services::ServeDir;
 
 type Shared = Arc<Mutex<Hub>>;
@@ -69,12 +69,14 @@ struct Seat {
 enum Match {
     Court(coup::Game),
     Reverie(reverie::Game),
+    Wolves(wolves::Game),
 }
 impl Match {
     fn finished(&self) -> bool {
         match self {
             Self::Court(g) => g.finished(),
             Self::Reverie(g) => g.finished(),
+            Self::Wolves(g) => g.finished(),
         }
     }
     fn phase_key(&self) -> String {
@@ -87,6 +89,7 @@ impl Match {
                 let v = g.view(0);
                 format!("{}:{}:{}", v.phase, v.round, v.storyteller)
             }
+            Self::Wolves(g) => format!("{:?}:{}", g.phase, g.day),
         }
     }
 }
@@ -100,6 +103,8 @@ struct Room {
     epoch: u64,
     updated: u64,
     board: Option<Match>,
+    #[serde(default)]
+    wolves_setup: wolves::Setup,
 }
 impl Room {
     fn view(&self, you: usize) -> RoomView {
@@ -127,6 +132,11 @@ impl Room {
                 Some(Match::Reverie(g)) => Some(g.view(you)),
                 _ => None,
             },
+            wolves: match &self.board {
+                Some(Match::Wolves(g)) => Some(g.view(you)),
+                _ => None,
+            },
+            wolves_setup: (self.game == GameKind::Wolves).then(|| self.wolves_setup.clone()),
         }
     }
     fn broadcast(&self) {
@@ -164,6 +174,12 @@ impl Room {
                 self.board = Some(match self.game {
                     GameKind::Court => Match::Court(coup::Game::new(names, rand::random())?),
                     GameKind::Reverie => Match::Reverie(reverie::Game::new(names, rand::random())?),
+                    GameKind::Wolves => Match::Wolves(wolves::Game::with_setup(
+                        names,
+                        rand::random(),
+                        now(),
+                        &self.wolves_setup,
+                    )?),
                 });
             }
             Command::Rematch if self.board.as_ref().is_some_and(Match::finished) => {
@@ -178,6 +194,28 @@ impl Room {
                     s.ready = false;
                 }
             }
+            Command::WolvesSetup(setup)
+                if self.board.is_none() && self.game == GameKind::Wolves =>
+            {
+                if you != self.host {
+                    return Err("Only the host can choose roles");
+                }
+                if setup.roles.len() > 16 {
+                    return Err("Choose at most 16 roles");
+                }
+                if setup.preset == wolves::Preset::Custom {
+                    setup.roles_for(setup.roles.len())?;
+                }
+                self.wolves_setup = setup;
+                for (i, seat) in self.seats.iter_mut().enumerate() {
+                    seat.ready = i == self.host;
+                }
+                self.epoch = self.epoch.wrapping_add(1);
+            }
+            Command::Wolves(movement) => match &mut self.board {
+                Some(Match::Wolves(g)) => g.play(you, movement, now())?,
+                _ => return Err("This is not an active Wolvesville game"),
+            },
             Command::Court(movement) => match &mut self.board {
                 Some(Match::Court(g)) => g.play(you, movement)?,
                 _ => return Err("This is not an active Coupe game"),
@@ -199,6 +237,7 @@ struct Hub {
     rooms: HashMap<String, Room>,
     path: PathBuf,
     rates: HashMap<std::net::IpAddr, (u64, u32)>,
+    notify: Arc<Notify>,
 }
 impl Hub {
     fn load(path: PathBuf) -> std::io::Result<Self> {
@@ -212,6 +251,7 @@ impl Hub {
             rooms,
             path,
             rates: HashMap::new(),
+            notify: Arc::new(Notify::new()),
         })
     }
     fn save(&self) -> std::io::Result<()> {
@@ -286,6 +326,7 @@ impl Hub {
                 epoch: 0,
                 updated: now(),
                 board: None,
+                wolves_setup: wolves::Setup::default(),
             },
         );
         Ok((code, token))
@@ -295,6 +336,48 @@ fn error(tx: &Tx, message: impl Into<String>) {
     let _ = tx.try_send(ServerMessage::Error {
         message: message.into(),
     });
+}
+
+// Sleep until an actual phase deadline or a room mutation. Idle rooms do not
+// create a polling loop, and disconnected seats cannot stall a running match.
+async fn deadlines(shared: Shared) {
+    loop {
+        let (deadline, notify) = {
+            let hub = shared.lock().unwrap();
+            let deadline = hub
+                .rooms
+                .values()
+                .filter_map(|r| match &r.board {
+                    Some(Match::Wolves(g)) if !g.finished() => Some(g.deadline),
+                    _ => None,
+                })
+                .min();
+            (deadline, hub.notify.clone())
+        };
+        if let Some(deadline) = deadline {
+            tokio::select! {
+                _ = notify.notified() => continue,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(deadline.saturating_sub(now()))) => {}
+            }
+            let mut hub = shared.lock().unwrap();
+            let mut changed = false;
+            for room in hub.rooms.values_mut() {
+                if let Some(Match::Wolves(game)) = &mut room.board
+                    && game.tick(now())
+                {
+                    room.epoch = room.epoch.wrapping_add(1);
+                    room.change();
+                    room.broadcast();
+                    changed = true;
+                }
+            }
+            if changed && let Err(e) = hub.save() {
+                eprintln!("Timed phase persistence failed: {e}");
+            }
+        } else {
+            notify.notified().await;
+        }
+    }
 }
 fn disconnect(shared: &Shared, binding: &Option<(String, String)>, connection: u64) {
     let Some((code, token)) = binding else {
@@ -430,6 +513,7 @@ fn handle(
                 match &mut room.board {
                     Some(Match::Court(g)) => g.forfeit(you),
                     Some(Match::Reverie(g)) => g.end_on_leave(you),
+                    Some(Match::Wolves(g)) => g.forfeit(you, now()),
                     None => {
                         room.seats.remove(you);
                         if you < room.host {
@@ -482,6 +566,7 @@ fn handle(
         room.change();
         room.broadcast();
     }
+    hub.notify.notify_one();
     if let Err(e) = hub.save() {
         eprintln!("Room persistence failed: {e}");
         error(tx, "Server progress could not be saved");
@@ -549,13 +634,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("runtime"));
     let shared = Arc::new(Mutex::new(Hub::load(data.join("rooms.json"))?));
+    tokio::spawn(deadlines(shared.clone()));
     let assets = std::env::var("JARCADE_STATIC_DIR").unwrap_or_else(|_| "dist".into());
     let app = Router::new()
         .route("/ws", get(upgrade))
         .route(
             "/health",
             get(|| async {
-                Json(serde_json::json!({"status":"ok","games":["court","reverie"],"protocol":1}))
+                Json(serde_json::json!({"status":"ok","games":["court","reverie","wolves"],"protocol":1}))
             }),
         )
         .fallback_service(ServeDir::new(assets))
@@ -574,11 +660,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     fn hub() -> Shared {
         Arc::new(Mutex::new(Hub {
             rooms: HashMap::new(),
             path: std::env::temp_dir().join(format!("jarcade-test-{}.json", secret())),
             rates: HashMap::new(),
+            notify: Arc::new(Notify::new()),
         }))
     }
     fn attach(
@@ -694,6 +782,7 @@ mod tests {
             epoch: 0,
             updated: now(),
             board: None,
+            wolves_setup: wolves::Setup::default(),
         };
         r.command(0, 0, Command::Start).unwrap();
         let card = r.view(0).reverie.unwrap().hand[0];
@@ -763,5 +852,150 @@ mod tests {
         let path = hub.path.clone();
         drop(hub);
         std::fs::remove_file(path).unwrap();
+    }
+    fn wolves_room(n: usize) -> Room {
+        Room {
+            code: "WOLVES".into(),
+            game: GameKind::Wolves,
+            seats: (0..n)
+                .map(|i| {
+                    let (tx, _rx) = mpsc::channel(32);
+                    Seat {
+                        name: format!("P{i}"),
+                        token: format!("seat{i}"),
+                        ready: true,
+                        left: false,
+                        link: Some(Link {
+                            connection: i as u64,
+                            tx,
+                        }),
+                    }
+                })
+                .collect(),
+            host: 0,
+            revision: 0,
+            epoch: 0,
+            updated: now(),
+            board: None,
+            wolves_setup: wolves::Setup::default(),
+        }
+    }
+    #[test]
+    fn wolves_setup_is_host_only_resets_readiness_and_checks_player_count() {
+        let mut r = wolves_room(8);
+        let setup = wolves::Setup {
+            preset: wolves::Preset::Custom,
+            roles: vec![
+                wolves::Role::Werewolf,
+                wolves::Role::Werewolf,
+                wolves::Role::Seer,
+                wolves::Role::Doctor,
+                wolves::Role::Villager,
+                wolves::Role::Villager,
+            ],
+        };
+        assert!(
+            r.command(1, r.epoch, Command::WolvesSetup(setup.clone()))
+                .is_err()
+        );
+        let old_epoch = r.epoch;
+        r.command(0, r.epoch, Command::WolvesSetup(setup)).unwrap();
+        assert!(r.seats[0].ready && r.seats[1..].iter().all(|s| !s.ready));
+        assert!(r.command(1, old_epoch, Command::Ready(true)).is_err());
+        for seat in &mut r.seats {
+            seat.ready = true;
+        }
+        assert!(r.command(0, r.epoch, Command::Start).is_err());
+        r.command(0, r.epoch, Command::WolvesSetup(wolves::Setup::default()))
+            .unwrap();
+        for seat in &mut r.seats {
+            seat.ready = true;
+        }
+        r.command(0, r.epoch, Command::Start).unwrap();
+        assert!(
+            r.command(0, r.epoch, Command::WolvesSetup(wolves::Setup::default()))
+                .is_err()
+        );
+        assert!(r.view(0).court.is_none() && r.view(0).reverie.is_none());
+    }
+    #[test]
+    fn wolves_reconnect_preserves_role_and_locked_actions_and_old_saves_load() {
+        let shared = hub();
+        let mut r = wolves_room(6);
+        r.command(0, r.epoch, Command::Start).unwrap();
+        r.command(
+            0,
+            r.epoch,
+            Command::Wolves(wolves::Move::Night {
+                target: None,
+                kill: None,
+            }),
+        )
+        .unwrap();
+        let role = r.view(0).wolves.unwrap().role;
+        r.seats[0].link = None;
+        let mut hub = shared.lock().unwrap();
+        hub.rooms.insert(r.code.clone(), r);
+        hub.save().unwrap();
+        let path = hub.path.clone();
+        drop(hub);
+        let restored = Arc::new(Mutex::new(Hub::load(path.clone()).unwrap()));
+        let (mut rx, binding) = attach(
+            &restored,
+            99,
+            ClientMessage::Resume {
+                room: "WOLVES".into(),
+                token: "seat0".into(),
+            },
+        );
+        assert!(binding.is_some());
+        rx.try_recv().unwrap();
+        let ServerMessage::State { room } = rx.try_recv().unwrap() else {
+            panic!("Expected private state")
+        };
+        let view = room.wolves.unwrap();
+        assert_eq!(view.role, role);
+        assert!(view.locked);
+        assert!(view.players.iter().enumerate().filter(|(i, p)| *i != 0 && !(role.wolf() && p.role.is_some_and(wolves::Role::wolf))).all(|(_, p)| p.role.is_none()));
+        let mut old = serde_json::to_value(wolves_room(6)).unwrap();
+        old.as_object_mut().unwrap().remove("wolves_setup");
+        let old: Room = serde_json::from_value(old).unwrap();
+        assert_eq!(old.wolves_setup, wolves::Setup::default());
+        std::fs::remove_file(path).unwrap();
+    }
+    #[tokio::test]
+    async fn wolves_deadlines_advance_disconnected_rooms_and_save_hidden_state() {
+        let shared = hub();
+        let mut room = wolves_room(6);
+        room.command(0, room.epoch, Command::Start).unwrap();
+        for seat in &mut room.seats {
+            seat.link = None;
+        }
+        if let Some(Match::Wolves(g)) = &mut room.board {
+            g.deadline = now().saturating_sub(1);
+        }
+        let epoch = room.epoch;
+        shared.lock().unwrap().rooms.insert(room.code.clone(), room);
+        let worker = tokio::spawn(deadlines(shared.clone()));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if shared.lock().unwrap().rooms["WOLVES"].epoch > epoch {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        worker.abort();
+        let hub = shared.lock().unwrap();
+        let r = &hub.rooms["WOLVES"];
+        assert_eq!(r.view(0).wolves.unwrap().phase, wolves::Phase::Dawn);
+        let loaded = Hub::load(hub.path.clone()).unwrap();
+        assert_eq!(
+            loaded.rooms["WOLVES"].view(0).wolves.unwrap().phase,
+            wolves::Phase::Dawn
+        );
+        std::fs::remove_file(&hub.path).unwrap();
     }
 }

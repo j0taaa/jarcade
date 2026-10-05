@@ -613,6 +613,7 @@ pub fn invite() -> Option<(jarcade::multiplayer::GameKind, String)> {
         let game = match v["game"].as_str()? {
             "court" => jarcade::multiplayer::GameKind::Court,
             "reverie" => jarcade::multiplayer::GameKind::Reverie,
+            "wolves" => jarcade::multiplayer::GameKind::Wolves,
             _ => return None,
         };
         Some((

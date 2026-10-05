@@ -16,3 +16,5 @@
 - Wavelength is offline multiplayer on one device: private target peek, concealed handoff, draggable guessing dial, then an unscored reveal. Preserve the reference flow, prompt decks/custom spectra, directly editable sides, high-DPI vectors, and event-driven idle screens; use a warm cream Wavelength background and true black in power saver; never open a room connection.
 
 - Table tennis is offline single player against a bounded-speed computer: finger/mouse rackets, legal net-crossing shots and bounces, three difficulties, first to 11 with a two-point lead, and alternating service. Keep physics independent of refresh rate, pause on interruptions, and rotate the court on short landscape screens.
+
+- Wolvesville uses private online rooms for 6–16 friends, Classic/Advanced/custom role lists, original vector portraits, private roles/findings/pack/ghost chats, and server-timed nights, discussion and secret majority votes. Validate setups and advanced powers on the server, preserve reconnect seats, and redraw static matches only for events or the one-second countdown.
