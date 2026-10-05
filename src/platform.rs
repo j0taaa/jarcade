@@ -17,6 +17,8 @@ unsafe extern "C" {
     fn jarcade_fih_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_wavelength_load(buffer: *mut u8, capacity: usize) -> usize;
     fn jarcade_wavelength_save(buffer: *const u8, length: usize) -> i32;
+    fn jarcade_nonograms_load(buffer: *mut u8, capacity: usize) -> usize;
+    fn jarcade_nonograms_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_interrupted() -> i32;
     fn jarcade_haptics_supported() -> i32;
     fn jarcade_haptic(kind: i32);
@@ -215,6 +217,44 @@ pub fn save_wavelength(game: &jarcade::wavelength::Game) -> bool {
         std::fs::create_dir_all(parent)
             .and_then(|()| std::fs::write(path.with_extension("tmp"), data))
             .and_then(|()| std::fs::rename(path.with_extension("tmp"), path))
+            .is_ok()
+    }
+}
+
+pub fn load_nonograms() -> jarcade::nonograms::Game {
+    #[cfg(target_arch = "wasm32")]
+    let data = {
+        let mut buffer = vec![0u8; 65_536];
+        // SAFETY: the bundled adapter copies at most the supplied capacity.
+        let n =
+            unsafe { jarcade_nonograms_load(buffer.as_mut_ptr(), buffer.len()) }.min(buffer.len());
+        String::from_utf8_lossy(&buffer[..n]).into_owned()
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let data = settings_path()
+        .and_then(|p| std::fs::read_to_string(p.with_file_name("nonograms.json")).ok())
+        .unwrap_or_default();
+    jarcade::nonograms::Game::restore(&data)
+}
+
+pub fn save_nonograms(data: &str) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: the adapter reads the live UTF-8 slice synchronously.
+    unsafe {
+        jarcade_nonograms_save(data.as_ptr(), data.len()) != 0
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(path) = settings_path().map(|p| p.with_file_name("nonograms.json")) else {
+            return false;
+        };
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        let temp = path.with_extension("tmp");
+        std::fs::create_dir_all(parent)
+            .and_then(|()| std::fs::write(&temp, data))
+            .and_then(|()| std::fs::rename(temp, path))
             .is_ok()
     }
 }
@@ -614,6 +654,7 @@ pub fn invite() -> Option<(jarcade::multiplayer::GameKind, String)> {
             "court" => jarcade::multiplayer::GameKind::Court,
             "reverie" => jarcade::multiplayer::GameKind::Reverie,
             "wolves" => jarcade::multiplayer::GameKind::Wolves,
+            "codenames" => jarcade::multiplayer::GameKind::Codenames,
             _ => return None,
         };
         Some((
@@ -648,6 +689,9 @@ pub fn launch_wavelength() -> bool {
 }
 pub fn launch_table_tennis() -> bool {
     launch_local_game("table-tennis")
+}
+pub fn launch_nonograms() -> bool {
+    launch_local_game("nonograms")
 }
 fn launch_local_game(game: &str) -> bool {
     #[cfg(target_arch = "wasm32")]

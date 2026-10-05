@@ -8,6 +8,16 @@ use macroquad::prelude::*;
 
 pub fn palette(game: GameKind, saver: bool) -> (Color, Color, Color) {
     match (game, saver) {
+        (GameKind::Codenames, false) => (
+            color_u8!(47, 116, 187, 255),
+            color_u8!(248, 246, 240, 255),
+            color_u8!(229, 226, 216, 255),
+        ),
+        (GameKind::Codenames, true) => (
+            color_u8!(117, 179, 244, 255),
+            BLACK,
+            color_u8!(45, 55, 70, 255),
+        ),
         (GameKind::Court, false) => (
             color_u8!(66, 81, 66, 255),
             color_u8!(247, 244, 234, 255),
@@ -106,6 +116,8 @@ pub fn crown(center: Vec2, radius: f32, ink: Color) {
 pub fn emblem(game: GameKind, center: Vec2, radius: f32, ink: Color) {
     if game == GameKind::Court {
         crown(center, radius, ink);
+    } else if game == GameKind::Codenames {
+        crate::codenames_view::agent(center, radius, ink, if ink.r > 0.6 { BLACK } else { WHITE });
     } else if game == GameKind::Wolves {
         crate::wolves_art::moon(center, radius, ink, if ink.r > 0.6 { BLACK } else { WHITE });
     } else {

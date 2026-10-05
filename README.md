@@ -1,7 +1,7 @@
 # Jarcade
 
 A small Rust / Macroquad arcade with shared game and UI code for desktop, web,
-Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, Table tennis, and Wolvesville.
+Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, Table tennis, Wolvesville, Codenames, and Nonograms.
 
 Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa/jarcade>. Hosting uses this PC and the
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
@@ -21,7 +21,7 @@ bash scripts/build-web.sh
 cargo run --release --features server --bin jarcade-server
 ```
 
-Open <http://localhost:8091>. A plain static server can run solo games and local Wavelength; online Coupe, Dicksit, and Wolvesville require the room service. To update the public site:
+Open <http://localhost:8091>. A plain static server can run solo games and local Wavelength; online Coupe, Dicksit, Wolvesville, and Codenames require the room service. To update the public site:
 
 ```sh
 host-app proxy jarcade 8091
@@ -36,6 +36,9 @@ reuse an older WebAssembly binary or JavaScript adapter.
   a high-resolution gameplay image produced by the actual board renderer.
 - High-DPI rendering uses the display's native pixel ratio. UI geometry stays
   in logical points, including touch coordinates and swipe thresholds.
+- The launch gallery uses two columns on phones and more on larger screens.
+  Swipe, scroll, or use Page Up/Down when the gallery exceeds the screen;
+  card taps activate on release, and keyboard focus scrolls cards into view.
 - Arrows / WASD steer; swipes and directional buttons work on touch screens.
 - Space / P starts, pauses, or resumes. Enter starts or retries.
 - Escape pauses; press again to go home. Tab / Shift+Tab and Enter navigate UI.
@@ -236,7 +239,7 @@ node --test scripts/*.test.cjs
 bash scripts/build-web.sh
 ```
 
-Rust tests cover Snake, Minesweeper, Fih, Table tennis, and Wavelength rules and edge cases, first-move safety,
+Rust tests cover Snake, Minesweeper, Fih, Table tennis, Wavelength, Nonograms, and online game rules and edge cases, first-move safety,
 flood fill, chording, deterministic placement, FPS measurement,
 frame-independent timing, input event ordering/modifiers, Wavelength handoff privacy, saves and dial projection, fast swipes/taps, continuous
 Snake trails and head rotation, offline pet care, purchases, save validation,
@@ -259,6 +262,9 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-fih-keyboard.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer-layouts.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-wolves.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-codenames.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-table-tennis.cjs
@@ -282,6 +288,11 @@ board and preview. `src/board_pan.rs` tests pan bounds, drag-versus-tap behavior
 `src/layout.rs`, `src/settings.rs`, and
 `src/feedback.rs` hold testable policies. `src/main.rs` and `src/ui.rs` provide the
 shared screens. Platform glue lives in `src/platform.rs` and `web/platform.js`.
+
+Nonograms rules and original puzzle catalog live in `src/nonograms.rs`, with
+the board, touch painting, and zoom controls in `src/nonograms_view.rs`.
+Codenames rules and private projections live in `src/multiplayer/codenames.rs`;
+`src/codenames_view.rs` draws its shared vector board and team setup.
 
 Bundled Inter fonts and the Macroquad loader have their licenses alongside them.
 See `assets/README.md` and `web/vendor/README.md` for provenance.
@@ -413,6 +424,52 @@ conservation, complete matches, all/mixed/no-correct scoring, the three-player
 variant, deck recycling, private projections, simultaneous actions, revoked
 connections, stale phases, and persistence/reconnect. Browser QA additionally
 plays full matches through separate sessions and verifies idle rendering.
+
+## Codenames
+
+Choose **Multiplayer → Codenames**, or open `?game=codenames`. Invite 4–16 players
+with a room code. Each player chooses Red or Blue and Operative or Spymaster;
+each team needs exactly one spymaster and at least one operative. The host
+chooses an original English or Portuguese word deck. Setup changes reset guest
+readiness; everyone readies before the host starts.
+
+The 5×5 board has nine agents for the starting team, eight for the other,
+seven bystanders, and one assassin. Only spymasters receive the unrevealed key.
+Give a one-word clue and a number; operatives select a word, then confirm its
+reveal. A numbered clue permits up to the number plus one guesses. Zero and
+unlimited permit any number of guesses. Make at least one guess before ending
+the turn. A bystander or opposing agent ends the turn; finding a team's last
+agent wins for that team, and revealing the assassin loses immediately.
+
+The server checks roles, turns, clue format, board-word conflicts, and guesses.
+Players discuss verbally; the game provides the shared word board and clue.
+Disconnecting keeps the seat and private role; explicit Leave forfeits the
+mission. The host can open a new mission after a result. Both themes render
+only on events or active scrolling. Rules reference:
+[official CGE rules](https://czechgames.com/files/rules/codenames-rules-en.pdf).
+Artwork and word decks are original; this is an independent adaptation.
+
+## Nonograms
+
+Choose **Single player → Nonograms**, or open `?game=nonograms`. Choose a 5×5,
+10×10, or 15×15 board from twelve original picture puzzles. Every shipped
+puzzle is tested to have a unique solution obtainable through line deductions.
+Numbers beside a row or column describe runs of filled cells, with at least
+one empty cell between runs. Fill the picture to win; crossing empty cells is
+optional, and extra filled cells prevent completion.
+
+Use **Fill** or **Cross** to paint cells with a finger or mouse. Each stroke is
+one undo operation; revisiting a cell does not toggle it repeatedly. Use
+**Move** to pan, or pinch/zoom to adjust the board. Canceled or multitouch paint
+gestures roll back their unfinished stroke. Undo, hints, and reset support
+experimentation. Board progress is saved separately for every puzzle, in
+browser storage or the native app-data folder; invalid or unavailable storage
+never prevents play. The game works offline after loading and has no recurring
+idle timer, including with the FPS counter enabled.
+
+Keyboard: arrows select cells, **Space** paints, **X** crosses, **F/C/V** choose
+Fill/Cross/Move, **U** or **Ctrl+Z** undoes, **H** hints, and **R** opens reset.
+Use **− / +** to zoom and **0** to fit the board.
 
 ## Table tennis
 

@@ -18,3 +18,6 @@
 - Table tennis is offline single player against a bounded-speed computer: finger/mouse rackets, legal net-crossing shots and bounces, three difficulties, first to 11 with a two-point lead, and alternating service. Keep physics independent of refresh rate, pause on interruptions, and rotate the court on short landscape screens.
 
 - Wolvesville uses private online rooms for 6–16 friends, Classic/Advanced/custom role lists, original vector portraits, private roles/findings/pack/ghost chats, and server-timed nights, discussion and secret majority votes. Validate setups and advanced powers on the server, preserve reconnect seats, and redraw static matches only for events or the one-second countdown.
+
+- Codenames uses online red/blue teams, private spymaster keys, English/Portuguese word boards, and server-validated clues and guesses. Never send unrevealed identities to operatives; preserve team seats on reconnect.
+- Nonograms is offline single player with original, uniquely solvable picture puzzles, board sizes, Fill/Cross/Move tools, touch painting, undo/hints, zoom/pan, and saved progress. Keep the board and launch gallery usable on small screens without idle redraws.

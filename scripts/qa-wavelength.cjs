@@ -118,7 +118,7 @@ const base = process.env.JARCADE_QA_URL || 'http://127.0.0.1:8091';
   await click(page, 195, 800); await phase(page, 'Ready'); assert((await label(page)).includes('Frio de inverno to Calor de verão'));
   await page.reload(); await phase(page, 'Ready'); assert.equal((await save(page)).deck, 'Custom'); await idle(page);
   // Home preview is a working entry point rather than an online room launcher.
-  await page.keyboard.press('Escape'); await page.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').includes('Select Coupe, Dicksit, or Wavelength'));
+  await page.keyboard.press('Escape'); await page.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').includes('Select Coupe'));
   assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(255, 255, 255)');
   await page.screenshot({path: '/tmp/jarcade-wave-home.png'});
   await click(page, 100, 565); await phase(page, 'Ready');

@@ -47,6 +47,7 @@ pub struct OnlinePage {
     target: Option<coup::Action>,
     sent: Option<u64>,
     wolves_ui: crate::wolves_view::WolvesUi,
+    codenames_ui: crate::codenames_view::CodenamesUi,
 }
 impl OnlinePage {
     pub fn new() -> Self {
@@ -78,12 +79,14 @@ impl OnlinePage {
             target: None,
             sent: None,
             wolves_ui: crate::wolves_view::WolvesUi::default(),
+            codenames_ui: crate::codenames_view::CodenamesUi::new(),
         }
     }
     pub fn enter(&mut self, game: GameKind, code: Option<String>) {
         self.suspend();
         self.game = game;
         self.wolves_ui = crate::wolves_view::WolvesUi::default();
+        self.codenames_ui = crate::codenames_view::CodenamesUi::new();
         self.room = None;
         self.help = false;
         self.clue_open = false;
@@ -154,7 +157,7 @@ impl OnlinePage {
     }
     pub fn poll(&mut self) {
         while let Some(edit) = platform::editor_poll() {
-            let id = if edit.id == 5 { 2 } else { edit.id };
+            let id = if matches!(edit.id, 5 | 6) { 2 } else { edit.id };
             if id < 3 {
                 self.fields[id] = if id == 1 {
                     edit.text
@@ -164,7 +167,16 @@ impl OnlinePage {
                         .take(6)
                         .collect()
                 } else {
-                    clean_text(&edit.text, if id == 0 { 24 } else { 160 })
+                    clean_text(
+                        &edit.text,
+                        if id == 0 {
+                            24
+                        } else if self.game == GameKind::Codenames {
+                            32
+                        } else {
+                            160
+                        },
+                    )
                 };
                 if edit.done {
                     self.editing = None;
@@ -178,7 +190,11 @@ impl OnlinePage {
                 if !c.is_control()
                     && self.fields[id].chars().count()
                         < if id == 2 {
-                            160
+                            if self.game == GameKind::Codenames {
+                                32
+                            } else {
+                                160
+                            }
                         } else if id == 1 {
                             6
                         } else {
@@ -227,6 +243,7 @@ impl OnlinePage {
                     let phase = phase_key(&room);
                     if self.room.as_ref().map(phase_key) != Some(phase) {
                         self.wolves_ui.phase_changed();
+                        self.codenames_ui.phase_changed();
                         self.selected.clear();
                         self.exchange.clear();
                         self.target = None;
@@ -261,7 +278,10 @@ impl OnlinePage {
         if self.keyboard_pan.active() {
             return true;
         }
-        self.art.loading() || self.pan.active() || self.wolves_ui.active()
+        self.art.loading()
+            || self.pan.active()
+            || self.wolves_ui.active()
+            || self.codenames_ui.active()
     }
     pub fn delay(&self) -> Option<f64> {
         #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -305,6 +325,36 @@ impl OnlinePage {
                         .collect::<Vec<_>>()
                         .join(". "),
                 );
+            } else if let Some(g) = &room.codenames {
+                let seat = g.seats[room.you];
+                text.push_str(&format!(
+                    "{} {}. {:?}, {} team's turn. {} red and {} blue agents remain. ",
+                    seat.team.label(),
+                    seat.role.label(),
+                    g.phase,
+                    g.team.label(),
+                    g.remaining[0],
+                    g.remaining[1]
+                ));
+                if let Some(clue) = &g.clue {
+                    text.push_str(&format!(
+                        "Clue: {} {}. ",
+                        clue.word,
+                        clue.number
+                            .map_or_else(|| "unlimited".into(), |n| n.to_string())
+                    ));
+                }
+                for (i, card) in g.cards.iter().enumerate() {
+                    text.push_str(&format!(
+                        "Card {} {}{}{}. ",
+                        i + 1,
+                        card.word,
+                        if card.revealed { " found" } else { "" },
+                        card.identity
+                            .map_or_else(String::new, |id| format!(" {:?}", id))
+                    ));
+                }
+                text.push_str(&self.codenames_ui.announcement());
             } else if let Some(g) = &room.wolves {
                 text.push_str(&format!(
                     "{} {}. Your role: {}. {} alive. {} ",
@@ -492,11 +542,12 @@ impl OnlinePage {
                 true,
             );
             ui.centered(
-                if self
-                    .room
-                    .as_ref()
-                    .is_some_and(|r| r.court.is_some() || r.reverie.is_some() || r.wolves.is_some())
-                {
+                if self.room.as_ref().is_some_and(|r| {
+                    r.court.is_some()
+                        || r.reverie.is_some()
+                        || r.wolves.is_some()
+                        || r.codenames.is_some()
+                }) {
                     "Leaving ends your participation."
                 } else {
                     "Your seat will be removed."
@@ -569,6 +620,31 @@ impl OnlinePage {
                 );
                 self.wolves_outcome(out);
                 self.error_banner(ui, x, width);
+            } else if let Some(game) = &room.codenames {
+                let out = self.codenames_ui.draw(
+                    ui,
+                    press,
+                    &room,
+                    game,
+                    (&self.fields[2], self.editing == Some(2)),
+                    Rect::new(x, 66., width, screen_height() - 82.),
+                );
+                self.codenames_outcome(out);
+                self.error_banner(ui, x, width);
+            } else if room.game == GameKind::Codenames {
+                let out = self.codenames_ui.lobby(
+                    ui,
+                    press,
+                    &room,
+                    Rect::new(
+                        x + (width - width.min(720.)) / 2.,
+                        66.,
+                        width.min(720.),
+                        screen_height() - 82.,
+                    ),
+                );
+                self.codenames_outcome(out);
+                self.error_banner(ui, x, width);
             } else if self.wolves_ui.setup.is_some() {
                 let out = self.wolves_ui.draw_setup(ui, press, &room, x, width);
                 self.wolves_outcome(out);
@@ -579,6 +655,22 @@ impl OnlinePage {
             self.draw_join(ui, press, x, width);
         }
         false
+    }
+    fn codenames_outcome(&mut self, out: crate::codenames_view::Outcome) {
+        if let Some(rect) = out.editor {
+            self.editing = Some(2);
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            {
+                self.keyboard_pan = BoardPan::default();
+            }
+            platform::editor_open(&self.fields[2], 6, rect, 32);
+        }
+        if let Some(command) = out.command {
+            self.play(command);
+        }
+        if out.leave {
+            self.confirm_leave = true;
+        }
     }
     fn wolves_outcome(&mut self, out: crate::wolves_view::Outcome) {
         if let Some(rect) = out.editor {
@@ -648,6 +740,8 @@ impl OnlinePage {
         }
         if self.game == GameKind::Court {
             card_art::preview(ui, art);
+        } else if self.game == GameKind::Codenames {
+            crate::codenames_view::preview(ui, art);
         } else if self.game == GameKind::Wolves {
             crate::wolves_art::preview(ui, art);
         } else {
@@ -663,6 +757,8 @@ impl OnlinePage {
         );
         let tagline = if self.game == GameKind::Court {
             "A little charm. A lot of bluff."
+        } else if self.game == GameKind::Codenames {
+            "One word. A whole secret mission."
         } else if self.game == GameKind::Wolves {
             "Friendly faces. Hidden fangs."
         } else {
@@ -1965,9 +2061,14 @@ impl OnlinePage {
         };
         let viewport = Rect::new(x, 66., width, screen_height() - 82.);
         let cols = (width / 48.).floor().max(4.) as usize;
-        let keys = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            .chars()
-            .collect::<Vec<_>>();
+        let codenames_clue = id == 2 && self.game == GameKind::Codenames;
+        let keys = if codenames_clue {
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZÁÃÂÀÉÊÍÓÔÕÚÇ"
+        } else {
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        }
+        .chars()
+        .collect::<Vec<_>>();
         let rows = keys.len().div_ceil(cols);
         let height = 72. + rows as f32 * 54. + 120.;
         let (origin, tap) = page_input(
@@ -2009,7 +2110,7 @@ impl OnlinePage {
             if button(ui, &c.to_string(), r, false, tap, viewport)
                 && self.fields[id].chars().count()
                     < if id == 2 {
-                        160
+                        if codenames_clue { 32 } else { 160 }
                     } else if id == 1 {
                         6
                     } else {
@@ -2024,14 +2125,18 @@ impl OnlinePage {
         let half = (width - 10.) / 2.;
         if button(
             ui,
-            "Space",
+            if codenames_clue { "Clear" } else { "Space" },
             Rect::new(x, y, half, 48.),
             false,
             tap,
             viewport,
         ) && id != 1
         {
-            self.fields[id].push(' ');
+            if codenames_clue {
+                self.fields[id].clear();
+            } else {
+                self.fields[id].push(' ');
+            }
             self.revision += 1;
         }
         if button(
@@ -2061,6 +2166,8 @@ impl OnlinePage {
         let viewport = Rect::new(x, 66., width, screen_height() - 82.);
         let lines: Vec<String> = if self.game == GameKind::Court {
             vec!["Two influences. Be the last player with one hidden.".into(),"Claim any role, even when you are bluffing. Everyone may challenge a claim before allowing it. A truthful claim replaces the shown card; the challenger loses an influence. A bluff loses an influence and the action fails.".into(),"Income: +1, cannot be challenged or blocked. Foreign aid: +2, anyone may block as Regent. Coup: pay 7 to remove an influence, cannot be blocked. At 10 coins a Coup is mandatory.".into(),"Regent (Duke): Tax +3; blocks Foreign aid.".into(),"Shade (Assassin): pay 3 to remove an influence. Sentinel can block. The cost is paid even if blocked or challenged. A failed challenge followed by assassination can cost two influences.".into(),"Corsair (Captain): steal up to 2 coins. The target can block as Corsair or Envoy.".into(),"Envoy (Ambassador): draw 2 cards, choose your remaining influences, return the rest.".into(),"Sentinel (Contessa): blocks assassination.".into(),"Scroll to see the table, actions and recent turns. Tab/Enter select; arrows/Page Up/Down scroll. Other devices join with the room code. Back to the arcade saves your seat; Leave forfeits it. Reconnect resumes your hidden hand.".into()]
+        } else if self.game == GameKind::Codenames {
+            vec!["Split into red and blue teams, with exactly one spymaster and at least one operative per team. The host chooses an English or Portuguese word deck. Everyone gets ready, then the host starts.".into(), "Only spymasters see the secret key. The starting team has 9 agents, the other has 8. Seven cards are bystanders; one is the assassin.".into(), "The active spymaster gives one word and a number. The clue must relate to meanings, never a visible word or part of one. The server checks the word format and board overlap; friends judge whether its meaning is fair.".into(), "Tap the number to cycle 0 through 9 and infinity. A numbered clue permits that many guesses plus one extra. Zero means avoid this association and, like infinity, permits unlimited guesses.".into(), "Operatives discuss out loud or in their own call, select a word, then confirm its reveal. Guess at least once before ending the turn. An opposing agent or bystander ends the turn; the assassin immediately loses the match.".into(), "The first team with all its agents revealed wins, even when its last agent was chosen by the other team. The finished board reveals the key. The host can open a new mission.".into(), "Each player uses a separate device. Keep spymaster screens private. Board drags scroll without choosing a card. Tab/Enter select; arrows scroll. Back preserves your seat; Reconnect resumes it. Explicitly leaving awards the other team the match.".into()]
         } else if self.game == GameKind::Wolves {
             let mut rules = vec!["Invite 6–16 friends. The host chooses Classic, Advanced, or a custom role list in the lobby. Every setup needs at least one wolf and a larger non-wolf team. Each special role can appear once.".into(), "Night: choose a player for your ability and, for wolves, a separate hunt vote. Choices lock when confirmed. Alpha votes count twice; tied hunts spare everyone. Even if an actor dies, a locked night action resolves.".into(), "Dawn reveals losses. Discuss in village chat, then vote. A strict majority of living players is needed to eliminate someone. Votes stay secret until the phase ends. A timer prevents disconnected seats from stalling the game.".into(), "Wolves win at parity unless the serial killer remains. Village wins after all wolves and the serial killer are gone. The Fool wins alone if voted out; the serial killer wins as the last survivor.".into(), "Pack chat stays private; wolves speak there at night. Ghosts talk in their own channel. The Medium can speak anonymously to ghosts at night. You can keep reading while your ability is locked.".into(), "Tap a portrait, then confirm your choice. Use My role for findings, remaining powers, the public role list, and the last revealed vote. Back saves your reconnect seat; Leave forfeits it. Disconnected players remain in the game.".into()];
             rules.extend(
@@ -2105,6 +2212,8 @@ fn phase_key(r: &RoomView) -> String {
         format!("{}:{}:{}", r.epoch, g.phase, g.turn)
     } else if let Some(g) = &r.reverie {
         format!("{}:{}:{}", g.phase, g.round, g.storyteller)
+    } else if let Some(g) = &r.codenames {
+        format!("{:?}:{}:{}", g.phase, g.turn, g.guesses)
     } else if let Some(g) = &r.wolves {
         format!("{:?}:{}", g.phase, g.day)
     } else {

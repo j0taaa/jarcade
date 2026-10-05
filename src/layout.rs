@@ -21,6 +21,10 @@ pub struct GameGrid {
 }
 
 impl GameGrid {
+    pub fn content_height(&self, count: usize) -> f32 {
+        let rows = count.max(1).div_ceil(self.columns);
+        rows as f32 * (self.image_height + 60.) + (rows - 1) as f32 * self.gap
+    }
     pub fn card(&self, index: usize) -> Rect {
         let height = self.image_height + 60.0;
         Rect::new(
@@ -57,7 +61,7 @@ impl Layout {
                 ((self.content.h - top - 24. - gap * (count.max(1).div_ceil(columns) - 1) as f32)
                     / count.max(1).div_ceil(columns) as f32
                     - 60.)
-                    .max(44.),
+                    .max(if count >= 5 { 88. } else { 44. }),
             ),
         }
     }
@@ -230,6 +234,40 @@ mod table_tests {
                 let card = grid.card(index);
                 assert!(card.bottom() <= h && card.right() <= w);
                 assert!(card.w >= 112. && card.h >= 100.);
+            }
+        }
+    }
+    #[test]
+    fn five_cards_keep_readable_previews_and_can_all_be_reached_by_scrolling() {
+        use crate::board_pan::BoardPan;
+        for (w, h, top) in [
+            (280., 360., 132.),
+            (320., 480., 132.),
+            (390., 844., 238.),
+            (568., 320., 132.),
+            (768., 1024., 238.),
+            (1440., 900., 238.),
+        ] {
+            let l = Layout::new(w, h);
+            let grid = l.game_grid_for(top, 5);
+            if w < 600. && w < h {
+                assert_eq!(grid.columns, 2);
+            }
+            let viewport = Rect::new(l.content.x, top, l.content.w, h - top - 16.);
+            let content = vec2(viewport.w, grid.content_height(5).max(viewport.h));
+            let mut pan = BoardPan::default();
+            for index in 0..5 {
+                let card = grid.card(index);
+                assert!(card.w >= 112. && grid.image_height >= 88.);
+                pan.offset.y = (card.bottom() - top - viewport.h).max(0.);
+                pan.clamp(viewport, content);
+                let origin = pan.board(viewport, content).point();
+                let shown = Rect::new(card.x, card.y + origin.y - top, card.w, card.h);
+                assert!(shown.y >= viewport.y && shown.bottom() <= viewport.bottom() + 0.001);
+                assert!(shown.x >= viewport.x && shown.right() <= viewport.right() + 0.001);
+                pan.begin(shown.center());
+                pan.update(shown.center() - vec2(0., 40.), viewport, content);
+                assert_eq!(pan.end(shown.center(), viewport, content), None);
             }
         }
     }

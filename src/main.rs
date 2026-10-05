@@ -1,9 +1,11 @@
 mod card_art;
+mod codenames_view;
 mod fih_art;
 mod fih_character;
 mod fih_view;
 mod game_view;
 mod mines_view;
+mod nonograms_view;
 mod online_net;
 mod online_style;
 mod online_view;
@@ -40,6 +42,7 @@ enum Screen {
     Multiplayer,
     Wavelength,
     Tennis,
+    Nonograms,
 }
 #[derive(Clone, Copy)]
 enum Action {
@@ -52,8 +55,10 @@ enum Action {
     NewCourt,
     NewReverie,
     NewWolves,
+    NewCodenames,
     NewWavelength,
     NewTennis,
+    NewNonograms,
     TogglePause,
     TogglePower,
     ToggleHaptics,
@@ -102,6 +107,9 @@ struct App {
     online: online_view::OnlinePage,
     wavelength: wavelength_view::WavelengthPage,
     tennis: table_tennis_view::TennisPage,
+    nonograms: nonograms_view::NonogramsPage,
+    home_pan: jarcade::board_pan::BoardPan,
+    home_gesture_blocked: bool,
     previous_body: Vec<Cell>,
     render_body: Vec<Vec2>,
     multiplayer: bool,
@@ -120,6 +128,9 @@ impl App {
             online: online_view::OnlinePage::new(),
             wavelength: wavelength_view::WavelengthPage::new(seed()),
             tennis: table_tennis_view::TennisPage::new(seed()),
+            nonograms: nonograms_view::NonogramsPage::new(platform::load_nonograms()),
+            home_pan: jarcade::board_pan::BoardPan::default(),
+            home_gesture_blocked: false,
             settings,
             game: Snake::new(seed()),
             clock: TickClock::default(),
@@ -174,6 +185,7 @@ impl App {
                 self.fih.interrupt();
                 self.fih_preview = FihPreview::new(&self.fih.pet, self.settings.power_saver);
                 self.mines.cancel_gesture();
+                self.nonograms.cancel_gesture();
                 self.game.pause();
                 self.screen = Screen::Home;
             }
@@ -194,15 +206,17 @@ impl App {
                 self.mines.choose_size();
                 self.screen = Screen::Mines;
             }
-            Action::NewCourt | Action::NewReverie | Action::NewWolves => {
+            Action::NewCourt | Action::NewReverie | Action::NewWolves | Action::NewCodenames => {
                 self.game.pause();
                 self.online.enter(
                     if matches!(action, Action::NewCourt) {
                         jarcade::multiplayer::GameKind::Court
                     } else if matches!(action, Action::NewReverie) {
                         jarcade::multiplayer::GameKind::Reverie
-                    } else {
+                    } else if matches!(action, Action::NewWolves) {
                         jarcade::multiplayer::GameKind::Wolves
+                    } else {
+                        jarcade::multiplayer::GameKind::Codenames
                     },
                     None,
                 );
@@ -221,6 +235,13 @@ impl App {
                 self.mines.cancel_gesture();
                 self.tennis.enter(seed());
                 self.screen = Screen::Tennis;
+            }
+            Action::NewNonograms => {
+                self.game.pause();
+                self.online.suspend();
+                self.mines.cancel_gesture();
+                self.nonograms.enter();
+                self.screen = Screen::Nonograms;
             }
             Action::NewFih => {
                 self.game.pause();
@@ -256,9 +277,13 @@ impl App {
                 | Action::NewCourt
                 | Action::NewReverie
                 | Action::NewWolves
+                | Action::NewCodenames
                 | Action::NewWavelength
                 | Action::NewTennis
+                | Action::NewNonograms
         ) {
+            self.home_pan.cancel();
+            self.nonograms.cancel_gesture();
             ui.reset_focus();
         }
         platform::appearance(self.settings.power_saver, self.screen == Screen::Wavelength);
@@ -341,7 +366,11 @@ impl App {
     fn header(&mut self, ui: &mut Ui, layout: &Layout) -> Action {
         if matches!(
             self.screen,
-            Screen::Fih | Screen::Multiplayer | Screen::Wavelength | Screen::Tennis
+            Screen::Fih
+                | Screen::Multiplayer
+                | Screen::Wavelength
+                | Screen::Tennis
+                | Screen::Nonograms
         ) {
             return Action::None;
         }
@@ -409,7 +438,7 @@ impl App {
         Action::None
     }
 
-    fn home(&mut self, ui: &mut Ui, layout: &Layout) -> Action {
+    fn home(&mut self, ui: &mut Ui, layout: &Layout, press: Option<Vec2>) -> Action {
         let x = layout.content.x;
         let width = layout.content.w;
         let tabs_y = if screen_height() < 500. {
@@ -425,6 +454,9 @@ impl App {
             Rect::new(x, tabs_y, tab_width, 42.),
             !self.multiplayer,
         ) {
+            if self.multiplayer {
+                self.home_pan = jarcade::board_pan::BoardPan::default();
+            }
             self.multiplayer = false;
         }
         if ui.tab(
@@ -432,13 +464,43 @@ impl App {
             Rect::new(x + tab_width + 8., tabs_y, tab_width, 42.),
             self.multiplayer,
         ) {
+            if !self.multiplayer {
+                self.home_pan = jarcade::board_pan::BoardPan::default();
+            }
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        let count = 4;
+        let count = 5;
         let grid = layout.game_grid_for(card_y, count);
-        for index in 0..count {
+        let viewport = Rect::new(x, card_y, width, (screen_height() - card_y - 16.).max(48.));
+        let content_height = grid.content_height(count);
+        // Header and category tabs are fixed; only the gallery scrolls.
+        // Keyboard focus brings every launch card into view as well.
+        if let Some(index) = ui.focused_item().and_then(|i| i.checked_sub(3))
+            && index < count
+        {
             let card = grid.card(index);
+            let local_y = card.y - card_y;
+            self.home_pan.offset.y = self
+                .home_pan
+                .offset
+                .y
+                .min(local_y)
+                .max(local_y + card.h - viewport.h);
+        }
+        let (origin, tap) = online_view::page_input(
+            &mut self.home_pan,
+            &mut self.home_gesture_blocked,
+            press,
+            viewport,
+            content_height,
+        );
+        let pointer = ui.override_pointer(tap);
+        online_view::clip(Some(viewport));
+        let mut chosen = Action::None;
+        for index in 0..count {
+            let mut card = grid.card(index);
+            card.y += origin.y - card_y;
             let image_height = grid.image_height;
             if !self.settings.power_saver {
                 rounded(
@@ -471,8 +533,10 @@ impl App {
                     self.online.art.preview(ui, preview_rect);
                 } else if index == 2 {
                     wavelength_view::preview(ui, preview_rect);
-                } else {
+                } else if index == 3 {
                     wolves_art::preview(ui, preview_rect);
+                } else {
+                    codenames_view::preview(ui, preview_rect);
                 }
             } else if index == 0 {
                 self.preview.draw(preview_rect);
@@ -480,13 +544,15 @@ impl App {
                 self.mines_preview.draw(preview_rect);
             } else if index == 2 {
                 self.fih_preview.draw(preview_rect);
-            } else {
+            } else if index == 3 {
                 table_tennis_view::preview(ui, preview_rect);
+            } else {
+                nonograms_view::preview(ui, preview_rect);
             }
             let title = if self.multiplayer {
-                ["Coupe", "Dicksit", "Wavelength", "Wolvesville"][index]
+                ["Coupe", "Dicksit", "Wavelength", "Wolvesville", "Codenames"][index]
             } else {
-                ["Snake", "Minesweeper", "Fih", "Table tennis"][index]
+                ["Snake", "Minesweeper", "Fih", "Table tennis", "Nonograms"][index]
             };
             let title_size = (19.0 * (card.w - 24.0) / ui.text_width(title, 19.0, true)).min(19.0);
             ui.heading(
@@ -498,9 +564,9 @@ impl App {
             );
             ui.label(
                 if self.multiplayer {
-                    ["Bluff · 2–6", "Stories · 3–8", "Local · 2+", "6–16"][index]
+                    ["Bluff · 2–6", "Stories · 3–8", "Local · 2+", "6–16", "4–16"][index]
                 } else {
-                    ["Classic", "Puzzle", "Pet", "vs CPU"][index]
+                    ["Classic", "Puzzle", "Pet", "vs CPU", "Puzzle"][index]
                 },
                 card.x + 12.0,
                 card.y + image_height + 46.0,
@@ -528,15 +594,17 @@ impl App {
                 },
             );
             if ui.hit(card) {
-                return if self.multiplayer {
+                chosen = if self.multiplayer {
                     if index == 0 {
                         Action::NewCourt
                     } else if index == 1 {
                         Action::NewReverie
                     } else if index == 2 {
                         Action::NewWavelength
-                    } else {
+                    } else if index == 3 {
                         Action::NewWolves
+                    } else {
+                        Action::NewCodenames
                     }
                 } else if index == 0 {
                     Action::NewGame
@@ -544,10 +612,28 @@ impl App {
                     Action::NewMines
                 } else if index == 2 {
                     Action::NewFih
-                } else {
+                } else if index == 3 {
                     Action::NewTennis
+                } else {
+                    Action::NewNonograms
                 };
+                break;
             }
+        }
+        online_view::clip(None);
+        ui.override_pointer(pointer);
+        if content_height > viewport.h {
+            let thumb_h = (viewport.h * viewport.h / content_height).max(24.);
+            let thumb_y = viewport.y
+                + self.home_pan.offset.y / (content_height - viewport.h) * (viewport.h - thumb_h);
+            rounded(
+                Rect::new(viewport.right() - 3., thumb_y, 3., thumb_h),
+                1.5,
+                ui.theme.muted,
+            );
+        }
+        if !matches!(chosen, Action::None) {
+            return chosen;
         }
         if !ui.keyboard_focus && is_key_pressed(KeyCode::Enter) {
             return if self.multiplayer {
@@ -811,6 +897,10 @@ async fn main() {
         app.tennis.enter(seed());
         app.screen = Screen::Tennis;
     }
+    if app.screen == Screen::Home && platform::launch_nonograms() {
+        app.nonograms.enter();
+        app.screen = Screen::Nonograms;
+    }
     platform::appearance(app.settings.power_saver, app.screen == Screen::Wavelength);
     let timer = platform::WakeTimer::new();
     let subscriber = macroquad::input::utils::register_input_subscriber();
@@ -836,6 +926,8 @@ async fn main() {
             }
             input.cancel();
             app.mines.cancel_gesture();
+            app.nonograms.cancel_gesture();
+            app.home_pan.cancel();
             input.interrupted = false;
         }
         if app.screen == Screen::Multiplayer {
@@ -869,6 +961,12 @@ async fn main() {
             } else if app.screen == Screen::Tennis && app.tennis.needs_frame() {
                 app.tennis.interrupt();
                 Action::None
+            } else if app.screen == Screen::Nonograms {
+                if app.nonograms.back() {
+                    Action::Home
+                } else {
+                    Action::None
+                }
             } else if app.screen == Screen::Game && app.game.status() == Status::Running {
                 Action::TogglePause
             } else {
@@ -911,7 +1009,21 @@ async fn main() {
                 }
                 if back { Action::Home } else { Action::None }
             }
-            Screen::Home => app.home(&mut ui, &layout),
+            Screen::Home => app.home(&mut ui, &layout, input.pointer),
+            Screen::Nonograms => {
+                if let Some(pulse) = app.nonograms.draw(&mut ui, input.pointer) {
+                    app.pulse(pulse, frame_start);
+                }
+                if let Some(data) = app.nonograms.take_save() {
+                    let saved = platform::save_nonograms(&data);
+                    app.nonograms.saved(saved);
+                }
+                if app.nonograms.take_home() {
+                    Action::Home
+                } else {
+                    Action::None
+                }
+            }
             Screen::Settings => app.settings_page(&mut ui, &layout),
             Screen::Game => app.game_page(&mut ui, &layout),
             Screen::Fih => {
@@ -936,6 +1048,8 @@ async fn main() {
         let continuous = (app.screen == Screen::Game && app.game.status() == Status::Running)
             || (app.screen == Screen::Tennis && app.tennis.needs_frame())
             || (app.screen == Screen::Mines && app.mines.needs_frame())
+            || (app.screen == Screen::Nonograms && app.nonograms.needs_frame())
+            || (app.screen == Screen::Home && app.home_pan.active())
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
             || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
             || (app.screen == Screen::Fih
@@ -953,7 +1067,7 @@ async fn main() {
                     screen_height() - 25.0
                 } else if matches!(
                     app.screen,
-                    Screen::Wavelength | Screen::Tennis | Screen::Multiplayer
+                    Screen::Wavelength | Screen::Tennis | Screen::Multiplayer | Screen::Nonograms
                 ) {
                     screen_height() - 18.0
                 } else {
@@ -962,7 +1076,7 @@ async fn main() {
                 78.0,
                 if matches!(
                     app.screen,
-                    Screen::Wavelength | Screen::Tennis | Screen::Multiplayer
+                    Screen::Wavelength | Screen::Tennis | Screen::Multiplayer | Screen::Nonograms
                 ) {
                     14.0
                 } else {
@@ -998,6 +1112,7 @@ async fn main() {
                     app.online.revision,
                     app.wavelength.revision,
                     app.tennis.game.revision,
+                    app.nonograms.revision,
                     app.multiplayer,
                 ),
                 app.fih.round.as_ref().map(|r| {
@@ -1016,11 +1131,12 @@ async fn main() {
                 Screen::Multiplayer => app.online.announcement(),
                 Screen::Wavelength => app.wavelength.announcement(),
                 Screen::Tennis => app.tennis.announcement(),
+                Screen::Nonograms => app.nonograms.announcement(),
                 Screen::Home => {
                     if app.multiplayer {
-                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, or Wolvesville. Coupe, Dicksit and Wolvesville use online rooms; Wavelength is local on this device.".to_owned()
+                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, or Codenames. Coupe, Dicksit, Wolvesville and Codenames use online rooms; Wavelength is local on this device.".to_owned()
                     } else {
-                        "Jarcade. Games. Select Snake, Minesweeper, Fih, or Table tennis to play."
+                        "Jarcade. Games. Select Snake, Minesweeper, Fih, Table tennis, or Nonograms to play."
                             .to_owned()
                     }
                 }
@@ -1049,6 +1165,8 @@ async fn main() {
         let delay = if changed
             || ui.activated
             || (app.screen == Screen::Mines && app.mines.needs_frame())
+            || (app.screen == Screen::Nonograms && app.nonograms.needs_frame())
+            || (app.screen == Screen::Home && app.home_pan.active())
         {
             Some(0.0)
         } else if app.screen == Screen::Game && app.game.status() == Status::Running {

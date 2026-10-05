@@ -12,7 +12,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use jarcade::multiplayer::{
     self as mp, ClientMessage, Command, GameKind, MemberView, RoomView, ServerMessage, Session,
-    coup, reverie, wolves,
+    codenames, coup, reverie, wolves,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -70,6 +70,7 @@ enum Match {
     Court(coup::Game),
     Reverie(reverie::Game),
     Wolves(wolves::Game),
+    Codenames(codenames::Game),
 }
 impl Match {
     fn finished(&self) -> bool {
@@ -77,6 +78,7 @@ impl Match {
             Self::Court(g) => g.finished(),
             Self::Reverie(g) => g.finished(),
             Self::Wolves(g) => g.finished(),
+            Self::Codenames(g) => g.finished(),
         }
     }
     fn phase_key(&self) -> String {
@@ -90,6 +92,7 @@ impl Match {
                 format!("{}:{}:{}", v.phase, v.round, v.storyteller)
             }
             Self::Wolves(g) => format!("{:?}:{}", g.phase, g.day),
+            Self::Codenames(g) => g.phase_key(),
         }
     }
 }
@@ -105,6 +108,8 @@ struct Room {
     board: Option<Match>,
     #[serde(default)]
     wolves_setup: wolves::Setup,
+    #[serde(default)]
+    codenames_setup: codenames::Setup,
 }
 impl Room {
     fn view(&self, you: usize) -> RoomView {
@@ -137,6 +142,15 @@ impl Room {
                 _ => None,
             },
             wolves_setup: (self.game == GameKind::Wolves).then(|| self.wolves_setup.clone()),
+            codenames: match &self.board {
+                Some(Match::Codenames(g)) => Some(g.view(you)),
+                _ => None,
+            },
+            codenames_setup: (self.game == GameKind::Codenames).then(|| {
+                let mut setup = self.codenames_setup.clone();
+                setup.resize(self.seats.len());
+                setup
+            }),
         }
     }
     fn broadcast(&self) {
@@ -172,6 +186,11 @@ impl Room {
                 }
                 let names = self.seats.iter().map(|s| s.name.clone()).collect();
                 self.board = Some(match self.game {
+                    GameKind::Codenames => Match::Codenames(codenames::Game::new(
+                        self.seats.len(),
+                        rand::random(),
+                        &self.codenames_setup,
+                    )?),
                     GameKind::Court => Match::Court(coup::Game::new(names, rand::random())?),
                     GameKind::Reverie => Match::Reverie(reverie::Game::new(names, rand::random())?),
                     GameKind::Wolves => Match::Wolves(wolves::Game::with_setup(
@@ -187,6 +206,17 @@ impl Room {
                     return Err("Only the host can open a new table");
                 }
                 let host = self.seats[you].token.clone();
+                if self.game == GameKind::Codenames {
+                    self.codenames_setup.resize(self.seats.len());
+                    self.codenames_setup.seats = self
+                        .codenames_setup
+                        .seats
+                        .iter()
+                        .copied()
+                        .zip(&self.seats)
+                        .filter_map(|(role, seat)| (!seat.left).then_some(role))
+                        .collect();
+                }
                 self.seats.retain(|s| !s.left);
                 self.host = self.seats.iter().position(|s| s.token == host).unwrap_or(0);
                 self.board = None;
@@ -212,6 +242,32 @@ impl Room {
                 }
                 self.epoch = self.epoch.wrapping_add(1);
             }
+            Command::CodenamesSeat(seat)
+                if self.board.is_none() && self.game == GameKind::Codenames =>
+            {
+                self.codenames_setup.resize(self.seats.len());
+                self.codenames_setup.seats[you] = seat;
+                for (i, s) in self.seats.iter_mut().enumerate() {
+                    s.ready = i == self.host;
+                }
+                self.epoch = self.epoch.wrapping_add(1);
+            }
+            Command::CodenamesLanguage(language)
+                if self.board.is_none() && self.game == GameKind::Codenames =>
+            {
+                if you != self.host {
+                    return Err("Only the host can choose the word deck");
+                }
+                self.codenames_setup.language = language;
+                for (i, s) in self.seats.iter_mut().enumerate() {
+                    s.ready = i == self.host;
+                }
+                self.epoch = self.epoch.wrapping_add(1);
+            }
+            Command::Codenames(movement) => match &mut self.board {
+                Some(Match::Codenames(g)) => g.play(you, movement)?,
+                _ => return Err("This is not an active Codenames game"),
+            },
             Command::Wolves(movement) => match &mut self.board {
                 Some(Match::Wolves(g)) => g.play(you, movement, now())?,
                 _ => return Err("This is not an active Wolvesville game"),
@@ -327,6 +383,7 @@ impl Hub {
                 updated: now(),
                 board: None,
                 wolves_setup: wolves::Setup::default(),
+                codenames_setup: codenames::Setup::default(),
             },
         );
         Ok((code, token))
@@ -514,7 +571,12 @@ fn handle(
                     Some(Match::Court(g)) => g.forfeit(you),
                     Some(Match::Reverie(g)) => g.end_on_leave(you),
                     Some(Match::Wolves(g)) => g.forfeit(you, now()),
+                    Some(Match::Codenames(g)) => g.forfeit(you),
                     None => {
+                        if room.game == GameKind::Codenames {
+                            room.codenames_setup.resize(room.seats.len());
+                            room.codenames_setup.seats.remove(you);
+                        }
                         room.seats.remove(you);
                         if you < room.host {
                             room.host -= 1;
@@ -641,7 +703,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/health",
             get(|| async {
-                Json(serde_json::json!({"status":"ok","games":["court","reverie","wolves"],"protocol":1}))
+                Json(serde_json::json!({"status":"ok","games":["court","reverie","wolves","codenames"],"protocol":1}))
             }),
         )
         .fallback_service(ServeDir::new(assets))
@@ -783,6 +845,7 @@ mod tests {
             updated: now(),
             board: None,
             wolves_setup: wolves::Setup::default(),
+            codenames_setup: codenames::Setup::default(),
         };
         r.command(0, 0, Command::Start).unwrap();
         let card = r.view(0).reverie.unwrap().hand[0];
@@ -878,6 +941,7 @@ mod tests {
             updated: now(),
             board: None,
             wolves_setup: wolves::Setup::default(),
+            codenames_setup: codenames::Setup::default(),
         }
     }
     #[test]
@@ -996,6 +1060,245 @@ mod tests {
             loaded.rooms["WOLVES"].view(0).wolves.unwrap().phase,
             wolves::Phase::Dawn
         );
+        std::fs::remove_file(&hub.path).unwrap();
+    }
+    #[test]
+    fn codenames_setup_authority_readiness_and_start_validation() {
+        let mut r = wolves_room(4);
+        r.game = GameKind::Codenames;
+        assert!(
+            r.command(
+                1,
+                r.epoch,
+                Command::CodenamesLanguage(codenames::Language::Portuguese)
+            )
+            .is_err()
+        );
+        r.command(
+            0,
+            r.epoch,
+            Command::CodenamesLanguage(codenames::Language::Portuguese),
+        )
+        .unwrap();
+        assert_eq!(r.codenames_setup.language, codenames::Language::Portuguese);
+        assert!(r.seats.iter().enumerate().all(|(i, s)| s.ready == (i == 0)));
+        r.command(
+            2,
+            r.epoch,
+            Command::CodenamesSeat(codenames::Seat {
+                team: codenames::Team::Red,
+                role: codenames::Role::Spymaster,
+            }),
+        )
+        .unwrap();
+        assert_eq!(r.codenames_setup.seat(0).role, codenames::Role::Spymaster);
+        for i in 1..4 {
+            r.command(i, r.epoch, Command::Ready(true)).unwrap();
+        }
+        assert!(r.command(0, r.epoch, Command::Start).is_err());
+        assert!(r.board.is_none());
+        r.command(
+            2,
+            r.epoch,
+            Command::CodenamesSeat(codenames::Seat {
+                team: codenames::Team::Red,
+                role: codenames::Role::Operative,
+            }),
+        )
+        .unwrap();
+        for i in 1..4 {
+            r.command(i, r.epoch, Command::Ready(true)).unwrap();
+        }
+        assert!(r.command(1, r.epoch, Command::Start).is_err());
+        r.command(0, r.epoch, Command::Start).unwrap();
+        assert!(
+            r.command(
+                0,
+                r.epoch,
+                Command::CodenamesLanguage(codenames::Language::English)
+            )
+            .is_err()
+        );
+        assert!(
+            r.command(
+                2,
+                r.epoch,
+                Command::CodenamesSeat(codenames::Seat::default_for(0))
+            )
+            .is_err()
+        );
+        assert_eq!(
+            r.view(2).codenames.unwrap().language,
+            codenames::Language::Portuguese
+        );
+    }
+    #[test]
+    fn codenames_reconnect_and_saved_rooms_keep_key_private_and_reject_stale_guesses() {
+        let shared = hub();
+        let mut bindings = vec![];
+        let (_, first) = attach(
+            &shared,
+            1,
+            ClientMessage::Create {
+                game: GameKind::Codenames,
+                name: "Ada".into(),
+            },
+        );
+        let (code, token) = first.unwrap();
+        bindings.push(token);
+        for i in 1..4 {
+            let (_, binding) = attach(
+                &shared,
+                i + 1,
+                ClientMessage::Join {
+                    room: code.clone(),
+                    name: format!("P{i}"),
+                },
+            );
+            bindings.push(binding.unwrap().1);
+        }
+        let mut hub = shared.lock().unwrap();
+        let r = hub.rooms.get_mut(&code).unwrap();
+        for i in 1..4 {
+            r.command(i, r.epoch, Command::Ready(true)).unwrap();
+        }
+        r.command(0, r.epoch, Command::Start).unwrap();
+        let g = r.view(0).codenames.unwrap();
+        let spy = g
+            .seats
+            .iter()
+            .position(|s| s.team == g.team && s.role == codenames::Role::Spymaster)
+            .unwrap();
+        let op = g
+            .seats
+            .iter()
+            .position(|s| s.team == g.team && s.role == codenames::Role::Operative)
+            .unwrap();
+        assert!(
+            r.view(op)
+                .codenames
+                .unwrap()
+                .cards
+                .iter()
+                .all(|c| c.identity.is_none())
+        );
+        r.command(
+            spy,
+            r.epoch,
+            Command::Codenames(codenames::Move::Clue {
+                word: "quintessential".into(),
+                number: Some(2),
+            }),
+        )
+        .unwrap();
+        let epoch = r.epoch;
+        let card = r
+            .view(spy)
+            .codenames
+            .unwrap()
+            .cards
+            .iter()
+            .position(|c| c.identity.unwrap().team() == Some(g.team))
+            .unwrap();
+        r.command(
+            op,
+            epoch,
+            Command::Codenames(codenames::Move::Guess { card }),
+        )
+        .unwrap();
+        assert!(
+            r.command(op, epoch, Command::Codenames(codenames::Move::Pass))
+                .is_err()
+        );
+        assert_eq!(
+            r.view(op)
+                .codenames
+                .unwrap()
+                .cards
+                .iter()
+                .filter(|c| c.identity.is_some())
+                .count(),
+            1
+        );
+        let before = serde_json::to_value(r.view(op).codenames).unwrap();
+        let path = hub.path.clone();
+        hub.save().unwrap();
+        drop(hub);
+        let restored = Arc::new(Mutex::new(Hub::load(path.clone()).unwrap()));
+        let (mut rx, binding) = attach(
+            &restored,
+            10,
+            ClientMessage::Resume {
+                room: code.clone(),
+                token: bindings[op].clone(),
+            },
+        );
+        assert!(binding.is_some());
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ServerMessage::Welcome { .. }
+        ));
+        let ServerMessage::State { room } = rx.try_recv().unwrap() else {
+            panic!("Expected private state")
+        };
+        assert_eq!(before, serde_json::to_value(room.codenames).unwrap());
+        assert!(
+            restored.lock().unwrap().rooms[&code]
+                .view(spy)
+                .codenames
+                .unwrap()
+                .cards
+                .iter()
+                .all(|c| c.identity.is_some())
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn codenames_lobby_leave_keeps_other_seats_roles_aligned_and_old_rooms_load() {
+        let shared = hub();
+        let (_, first) = attach(
+            &shared,
+            1,
+            ClientMessage::Create {
+                game: GameKind::Codenames,
+                name: "Ada".into(),
+            },
+        );
+        let (code, _) = first.unwrap();
+        let (_, mut second) = attach(
+            &shared,
+            2,
+            ClientMessage::Join {
+                room: code.clone(),
+                name: "Bea".into(),
+            },
+        );
+        let (_, third) = attach(
+            &shared,
+            3,
+            ClientMessage::Join {
+                room: code.clone(),
+                name: "Cy".into(),
+            },
+        );
+        let cy_token = third.unwrap().1;
+        let (tx, _) = mpsc::channel(32);
+        handle(
+            &shared,
+            &tx,
+            2,
+            &mut second,
+            "127.0.0.1".parse().unwrap(),
+            ClientMessage::Leave,
+        );
+        let hub = shared.lock().unwrap();
+        let r = &hub.rooms[&code];
+        assert_eq!(r.seats[1].token, cy_token);
+        assert_eq!(r.codenames_setup.seat(1), codenames::Seat::default_for(2));
+        let mut old = serde_json::to_value(wolves_room(6)).unwrap();
+        old.as_object_mut().unwrap().remove("codenames_setup");
+        let old: Room = serde_json::from_value(old).unwrap();
+        assert_eq!(old.codenames_setup, codenames::Setup::default());
         std::fs::remove_file(&hub.path).unwrap();
     }
 }

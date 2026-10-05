@@ -1,4 +1,5 @@
 //! Shared wire protocol and authoritative, renderer-independent card game rules.
+pub mod codenames;
 pub mod coup;
 pub mod reverie;
 pub mod wolves;
@@ -11,6 +12,7 @@ pub enum GameKind {
     Court,
     Reverie,
     Wolves,
+    Codenames,
 }
 impl GameKind {
     pub fn title(self) -> &'static str {
@@ -18,6 +20,7 @@ impl GameKind {
             Self::Court => "Coupe",
             Self::Reverie => "Dicksit",
             Self::Wolves => "Wolvesville",
+            Self::Codenames => "Codenames",
         }
     }
     pub fn limits(self) -> (usize, usize) {
@@ -25,6 +28,7 @@ impl GameKind {
             Self::Court => (2, 6),
             Self::Reverie => (3, 8),
             Self::Wolves => (6, 16),
+            Self::Codenames => (4, 16),
         }
     }
 }
@@ -47,6 +51,9 @@ pub enum Command {
     Reverie(reverie::Move),
     Wolves(wolves::Move),
     WolvesSetup(wolves::Setup),
+    Codenames(codenames::Move),
+    CodenamesSeat(codenames::Seat),
+    CodenamesLanguage(codenames::Language),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
@@ -85,6 +92,10 @@ pub struct RoomView {
     pub wolves: Option<wolves::View>,
     #[serde(default)]
     pub wolves_setup: Option<wolves::Setup>,
+    #[serde(default)]
+    pub codenames: Option<codenames::View>,
+    #[serde(default)]
+    pub codenames_setup: Option<codenames::Setup>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

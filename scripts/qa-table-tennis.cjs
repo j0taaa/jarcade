@@ -22,11 +22,15 @@ function geometry(w, h) {
 function card(w, h, index) {
   const margin = w < 360 ? 16 : w < 600 ? 20 : 40, content = Math.min(w - margin * 2, 1040);
   const landscape = (w > h * 1.3 && h < 620) || (h < 360 && w >= 360);
-  const cols = content >= 960 || (landscape && content >= 480) ? 4 : content >= 600 ? 3 : 2;
-  const gap = cols === 2 ? 12 : 20, cw = (content - gap * (cols - 1)) / cols, rows = Math.ceil(4 / cols);
+  const cols = content >= 960 ? 4 : content >= 600 || (landscape && content >= 480) ? 3 : 2;
+  const gap = cols === 2 ? 12 : 20, cw = (content - gap * (cols - 1)) / cols, rows = Math.ceil(5 / cols);
   const top = h < 500 ? 132 : h < 640 ? 208 : 238;
-  const ih = Math.min(cw * .88, Math.max(44, (h - top - 24 - gap * (rows - 1)) / rows - 60));
-  return [(w - content) / 2 + index % cols * (cw + gap) + cw / 2, top + Math.floor(index / cols) * (ih + 60 + gap) + (ih + 60) / 2];
+  const ih = Math.min(cw * .88, Math.max(88, (h - top - 24 - gap * (rows - 1)) / rows - 60));
+  const total = rows * (ih + 60) + (rows - 1) * gap, viewport = h - top - 16;
+  const offset = Math.min(Math.max(0,total - viewport), Math.max(0,Math.floor(index / cols) * (ih + 60 + gap) + ih + 60 - viewport));
+  const pages = Math.ceil(offset / (viewport * .8));
+  return { point: [(w - content) / 2 + index % cols * (cw + gap) + cw / 2,
+    top + Math.floor(index / cols) * (ih + 60 + gap) + (ih + 60) / 2 - Math.min(Math.max(0,total - viewport), pages * viewport * .8)], pages };
 }
 (async () => {
   const browser = await chromium.launch({executablePath: process.env.JARCADE_CHROME || '/usr/bin/google-chrome', args: ['--no-sandbox', '--enable-unsafe-swiftshader']});
@@ -124,7 +128,9 @@ out['background']=im.getpixel((2,120));out['court']=im.getpixel((int(g['x']+g['w
   for(const saver of [false,true]) for(const [w,h] of [[280,360],[320,480],[390,844],[568,320],[768,1024],[1440,900]]) {
     const run=await setup(w,h,saver,true); await run.page.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Select Snake'));
     await run.page.screenshot({path:`${artifacts}/home-${w}-${h}-${saver}.png`});
-    await run.page.touchscreen.tap(...card(w,h,3)); await phase(run.page,'Ready'); await idle(run.page);
+    const launch = card(w,h,3);
+    for (let n=0;n<launch.pages;n++) { await run.page.keyboard.press('PageDown'); await run.page.waitForTimeout(60); }
+    await run.page.touchscreen.tap(...launch.point); await phase(run.page,'Ready'); await idle(run.page);
     assert.deepEqual(await run.page.evaluate(()=>[document.querySelector('canvas').width,document.querySelector('canvas').height]),[w*3,h*3]);
     const p=await pixels(run.page); assert.deepEqual(p.background,saver?[0,0,0]:[255,255,255]);
     assert.deepEqual(p.court,saver?[0,0,0]:[34,116,131]);

@@ -130,6 +130,10 @@ impl Ui {
         self.keyboard_focus = false;
     }
 
+    pub fn focused_item(&self) -> Option<usize> {
+        self.keyboard_focus.then_some(self.focus)
+    }
+
     pub fn label(&self, text: &str, x: f32, y: f32, size: f32, color: Color) {
         self.text(text, vec2(x, y), size, color, false);
     }
