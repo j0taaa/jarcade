@@ -266,6 +266,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-codenames.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-endless.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-ui.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-marks.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -470,8 +471,10 @@ the circular arrow opens reset. Minus/plus zoom; the corner icon fits the board.
 Keyboard focus shows labels, and **?** opens a visual icon guide.
 
 Use **Fill** or **Cross** to paint cells with a finger or mouse. Each stroke is
-one undo operation; revisiting a cell does not toggle it repeatedly. Use
-**Move** to pan, or pinch/zoom to adjust the board. Canceled or multitouch paint
+one undo operation; revisiting a cell does not toggle it repeatedly. A marked
+cell must be cleared before placing the opposite mark; drags and hints respect
+this rule too. Use **Move** to pan, or pinch/zoom to adjust the board. Canceled
+or multitouch paint
 gestures roll back their unfinished stroke. Undo, hints, and reset support
 experimentation. Board progress is saved separately for every puzzle, in
 browser storage or the native app-data folder. Endless keeps the current puzzle,
@@ -480,7 +483,8 @@ to generate another. Existing picture saves remain compatible. Invalid or
 unavailable storage never prevents play. The game works offline after loading and has no recurring
 idle timer, including with the FPS counter enabled.
 
-Keyboard: arrows select cells, **Space** paints, **X** crosses, **F/C/V** choose
+Keyboard: arrows select cells, **Space** switches Fill/Cross, **Enter** paints
+the selected cell, **X** uses Cross, and **F/C/V** choose
 Fill/Cross/Move, **U** or **Ctrl+Z** undoes, **H** hints, and **R** opens reset.
 Use **− / +** to zoom and **0** to fit the board.
 

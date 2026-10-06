@@ -476,7 +476,7 @@ impl NonogramsPage {
     }
     fn state_announcement(&self) -> String {
         if self.help {
-            return "Jarcade. Nonograms. Fill runs of squares to match the numbers. Leave at least one empty square between runs. Cross marks empty squares. Drag to paint; choose Move to pan, or pinch to zoom. Square: Fill. X: Cross. Arrows: Move. Curved arrow: Undo. Lightbulb: Hint. Circular arrow: Reset. Minus/plus: zoom. Corners: fit board. Close help to continue.".into();
+            return "Jarcade. Nonograms. Fill runs of squares to match the numbers. Leave at least one empty square between runs. Cross marks empty squares. Drag to paint; choose Move to pan, or pinch to zoom. Square: Fill. X: Cross. Arrows: Move. Curved arrow: Undo. Lightbulb: Hint. Circular arrow: Reset. Minus/plus: zoom. Corners: fit board. Space switches Fill and Cross. Enter paints the selected cell. Clear a mark before placing the opposite mark. Close help to continue.".into();
         }
         if self.reset_confirm {
             return "Jarcade. Nonograms. Clear this picture? Your progress can still be restored with Undo. Clear or Cancel.".into();
@@ -1211,6 +1211,16 @@ impl NonogramsPage {
                 ui.reset_focus();
             }
         }
+        if is_key_pressed(KeyCode::Space) {
+            self.cancel_gesture();
+            self.tool = if self.tool == Tool::Fill {
+                Tool::Cross
+            } else {
+                Tool::Fill
+            };
+            self.revision += 1;
+            ui.reset_focus();
+        }
         if !ui.keyboard_focus {
             if is_key_pressed(KeyCode::F) {
                 self.cancel_gesture();
@@ -1227,8 +1237,7 @@ impl NonogramsPage {
                 self.tool = Tool::Move;
                 self.revision += 1;
             }
-            if ((is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::Enter))
-                && self.tool != Tool::Move)
+            if (is_key_pressed(KeyCode::Enter) && self.tool != Tool::Move)
                 || is_key_pressed(KeyCode::X)
             {
                 self.cancel_gesture();

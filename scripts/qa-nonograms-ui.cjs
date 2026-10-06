@@ -32,10 +32,10 @@ const tool=(w,h,i)=>{const wide=w>=540&&h<500,width=wide?144:Math.min(w-24,280),
       await p.touchscreen.tap(...utility(w,h,0));await wait(p);
       assert.equal((await data(p)).boards[0].cells.filter(Boolean).length,0,'The curved arrow must undo');
       await p.touchscreen.tap(...tool(w,h,1));await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Cross mode'));
-      await p.keyboard.press('Space');await wait(p);
+      await p.keyboard.press('Enter');await wait(p);
       assert((await data(p)).boards[0].cells.includes(2));
       await p.touchscreen.tap(...tool(w,h,2));await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Move mode'));
-      const before=await data(p);await p.keyboard.press('Space');await wait(p);assert.deepEqual(await data(p),before,'Move must not paint');
+      const before=await data(p);await p.keyboard.press('Enter');await wait(p);assert.deepEqual(await data(p),before,'Move must not paint');
       await p.touchscreen.tap(...tool(w,h,0));await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Fill mode'));
       for(const i of [5,3,4]){await p.touchscreen.tap(...utility(w,h,i));await wait(p);assert.deepEqual(await data(p),before,'Zoom controls must not paint');}
       await p.touchscreen.tap(...utility(w,h,2));await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Clear this picture?'));

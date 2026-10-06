@@ -48,13 +48,13 @@ const clueGeometry = (w, h, side, left, top) => {
         await p.touchscreen.tap(...setup(w,h).play);
         await p.waitForFunction(side=>document.querySelector('canvas').getAttribute('aria-label').includes(`${side} × ${side}. Fill mode`),side);
         await idle(p);await p.screenshot({path:`${artifacts}/board-${side}-${w}x${h}-${saver}.png`,scale:'css'});
-        await p.keyboard.press('ArrowRight');await p.keyboard.press('Space');await p.waitForTimeout(100);
+        await p.keyboard.press('ArrowRight');await p.keyboard.press('Enter');await p.waitForTimeout(100);
         const saved=await p.evaluate(()=>JSON.parse(localStorage.getItem('jarcade.nonograms.v1')));
         assert.equal(saved.boards.find(b=>b.id===saved.selected).cells[1],1);
         await p.keyboard.press('u');await p.waitForTimeout(100);
         const undone=await p.evaluate(()=>JSON.parse(localStorage.getItem('jarcade.nonograms.v1')));
         assert.equal(undone.boards.find(b=>b.id===undone.selected)?.cells[1]||0,0);
-        await p.keyboard.press('v');await p.keyboard.press('Space');await p.waitForTimeout(70);
+        await p.keyboard.press('v');await p.keyboard.press('Enter');await p.waitForTimeout(70);
         assert.equal(await p.evaluate(()=>localStorage.getItem('jarcade.nonograms.v1')),JSON.stringify(undone),'Move must never paint');
         await p.keyboard.press('Escape');await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Choose a picture'));
       }
@@ -87,9 +87,10 @@ const clueGeometry = (w, h, side, left, top) => {
     await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await p.waitForTimeout(70);
     assert.equal((await p.evaluate(()=>JSON.parse(localStorage.getItem('jarcade.nonograms.v1')))).boards.length,0,'Pinch must roll back the whole interrupted paint stroke');
     // Keyboard hints correct a wrong fill without penalties.
-    for(let i=0;i<5;i++)await p.keyboard.press('ArrowLeft');for(let i=0;i<5;i++)await p.keyboard.press('ArrowUp');await p.keyboard.press('f');await p.keyboard.press('Space');await p.keyboard.press('h');await p.waitForTimeout(100);
+    for(let i=0;i<5;i++)await p.keyboard.press('ArrowLeft');for(let i=0;i<5;i++)await p.keyboard.press('ArrowUp');await p.keyboard.press('f');await p.keyboard.press('Enter');await p.keyboard.press('h');await p.waitForTimeout(100);
     progress=await p.evaluate(()=>JSON.parse(localStorage.getItem('jarcade.nonograms.v1')));
-    assert.equal(progress.boards[0].cells[0],2);assert.equal(progress.boards[0].hints,1);
+    assert.equal(progress.boards[0].cells[0],0);assert.equal(progress.boards[0].hints,1);
+    await p.keyboard.press('x');await p.waitForTimeout(70);
     await p.keyboard.press('r');await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Clear this picture?'));
     await p.touchscreen.tap(282,461);await p.waitForTimeout(100);
     assert.equal((await p.evaluate(()=>JSON.parse(localStorage.getItem('jarcade.nonograms.v1')))).boards[0].cells.filter(Boolean).length,0);

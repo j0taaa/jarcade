@@ -637,7 +637,7 @@ impl Game {
             return false;
         }
         self.cancel_stroke();
-        let target = if self.cells()[index] == tool {
+        let target = if self.cells()[index] != Cell::Blank {
             Cell::Blank
         } else {
             tool
@@ -659,7 +659,12 @@ impl Game {
             return false;
         }
         stroke.changes.push((index, *cell));
-        *cell = stroke.target;
+        // Opposite marks must pass through Blank, including during a drag.
+        *cell = if *cell != Cell::Blank && stroke.target != Cell::Blank {
+            Cell::Blank
+        } else {
+            stroke.target
+        };
         true
     }
     pub fn finish_stroke(&mut self) -> bool {
@@ -735,7 +740,9 @@ impl Game {
                     })
                 })?;
         let previous = self.cells()[index];
-        self.boards[self.selected].cells[index] = if self.puzzle().filled(index) {
+        self.boards[self.selected].cells[index] = if previous != Cell::Blank {
+            Cell::Blank
+        } else if self.puzzle().filled(index) {
             Cell::Filled
         } else {
             Cell::Cross
@@ -970,6 +977,55 @@ mod tests {
         assert_eq!(&game.cells()[..2], &[Cell::Blank; 2]);
     }
     #[test]
+    fn every_mark_requires_a_separate_clear_before_placing_the_other_mark() {
+        for first in [Cell::Filled, Cell::Cross] {
+            for tool in [Cell::Filled, Cell::Cross] {
+                let mut game = Game::new();
+                game.begin_stroke(0, first);
+                game.finish_stroke();
+                game.begin_stroke(0, tool);
+                game.finish_stroke();
+                assert_eq!(game.cells()[0], Cell::Blank);
+                game.begin_stroke(0, tool);
+                game.finish_stroke();
+                assert_eq!(game.cells()[0], tool);
+                assert!(game.undo());
+                assert_eq!(game.cells()[0], Cell::Blank);
+                assert!(game.undo());
+                assert_eq!(game.cells()[0], first);
+            }
+        }
+    }
+    #[test]
+    fn mixed_drags_clear_opposite_marks_without_repainting_them_on_revisit() {
+        for tool in [Cell::Filled, Cell::Cross] {
+            let opposite = if tool == Cell::Filled {
+                Cell::Cross
+            } else {
+                Cell::Filled
+            };
+            let mut game = Game::new();
+            game.begin_stroke(1, opposite);
+            game.finish_stroke();
+            game.begin_stroke(2, tool);
+            game.finish_stroke();
+            for cancel in [true, false] {
+                game.begin_stroke(0, tool);
+                game.paint(1);
+                game.paint(2);
+                assert!(!game.paint(1));
+                assert_eq!(&game.cells()[..3], &[tool, Cell::Blank, tool]);
+                if cancel {
+                    game.cancel_stroke();
+                } else {
+                    assert!(game.finish_stroke());
+                    assert!(game.undo());
+                }
+                assert_eq!(&game.cells()[..3], &[Cell::Blank, opposite, tool]);
+            }
+        }
+    }
+    #[test]
     fn interrupted_or_multitouch_stroke_rolls_back_every_cell() {
         let mut game = Game::new();
         game.begin_stroke(4, Cell::Cross);
@@ -1005,12 +1061,16 @@ mod tests {
         game.begin_stroke(0, Cell::Filled);
         game.finish_stroke();
         assert_eq!(game.hint(), Some(0));
-        assert_eq!(game.cells()[0], Cell::Cross);
+        assert_eq!(game.cells()[0], Cell::Blank);
         assert_eq!(game.hints(), 1);
+        game.begin_stroke(0, Cell::Cross);
+        game.finish_stroke();
         game.reset();
         assert_eq!(game.marked(0), 0);
         game.undo();
         assert_eq!(game.cells()[0], Cell::Cross);
+        game.undo();
+        assert_eq!(game.cells()[0], Cell::Blank);
         game.undo();
         assert_eq!(game.cells()[0], Cell::Filled);
     }
