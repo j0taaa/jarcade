@@ -1,5 +1,7 @@
 //! Original picture puzzles and rendering-independent Nonogram rules.
 use serde::{Deserialize, Serialize};
+mod generator;
+use generator::Generated;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cell {
@@ -54,6 +56,49 @@ impl Size {
             Self::Large => "Take your time",
         }
     }
+    pub fn index(self) -> usize {
+        match self {
+            Self::Small => 0,
+            Self::Medium => 1,
+            Self::Large => 2,
+        }
+    }
+    pub fn from_side(side: usize) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.side() == side)
+    }
+}
+
+/// A borrowed view of either a hand-authored picture or an owned generated board.
+pub struct ActivePuzzle<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    side: usize,
+    original: Option<&'a Puzzle>,
+    solution: Option<&'a [bool]>,
+}
+impl ActivePuzzle<'_> {
+    pub fn size(&self) -> Size {
+        Size::from_side(self.side).expect("validated puzzle dimensions")
+    }
+    pub fn filled(&self, index: usize) -> bool {
+        self.original.map_or_else(
+            || self.solution.is_some_and(|s| s.get(index) == Some(&true)),
+            |p| p.filled(index),
+        )
+    }
+    pub fn clues(&self) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
+        clues_for(self.side, |i| self.filled(i))
+    }
+}
+fn clues_for(side: usize, filled: impl Fn(usize) -> bool) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
+    (
+        (0..side)
+            .map(|y| runs((0..side).map(|x| filled(y * side + x))))
+            .collect(),
+        (0..side)
+            .map(|x| runs((0..side).map(|y| filled(y * side + x))))
+            .collect(),
+    )
 }
 
 pub struct Puzzle {
@@ -291,6 +336,19 @@ struct Save {
     version: u8,
     selected: String,
     boards: Vec<Record>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    endless: Vec<EndlessRecord>,
+}
+#[derive(Serialize, Deserialize)]
+struct EndlessRecord {
+    side: usize,
+    seed: u64,
+    number: u64,
+    solution: Vec<bool>,
+    cells: Vec<u8>,
+    hints: usize,
+    #[serde(default)]
+    recent: Vec<u64>,
 }
 
 #[derive(Clone)]
@@ -305,6 +363,7 @@ pub struct Game {
     stroke: Option<Stroke>,
     row_clues: Vec<Vec<usize>>,
     column_clues: Vec<Vec<usize>>,
+    endless: [Option<Generated>; 3],
 }
 impl Default for Game {
     fn default() -> Self {
@@ -327,6 +386,7 @@ impl Game {
             stroke: None,
             row_clues,
             column_clues,
+            endless: [None, None, None],
         }
     }
     pub fn restore(data: &str) -> Self {
@@ -337,7 +397,7 @@ impl Game {
         let Ok(save) = serde_json::from_str::<Save>(data) else {
             return game;
         };
-        if save.version != 1 {
+        if !matches!(save.version, 1 | 2) {
             return game;
         }
         for record in save.boards.into_iter().take(PUZZLES.len()) {
@@ -359,14 +419,52 @@ impl Game {
                 };
             }
         }
+        game.boards.extend((0..3).map(|_| Progress::default()));
+        for record in save.endless.into_iter().take(3) {
+            let Some(size) = Size::from_side(record.side) else {
+                continue;
+            };
+            if record.solution.len() != record.side * record.side
+                || record.cells.len() != record.solution.len()
+                || record.number == 0
+                || !generator::valid_solution(record.side, &record.solution)
+            {
+                continue;
+            }
+            let Some(cells) = record
+                .cells
+                .into_iter()
+                .map(Cell::decode)
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let slot = size.index();
+            game.endless[slot] = Some(Generated::restore(
+                size,
+                record.seed,
+                record.number,
+                record.solution,
+                record.recent,
+            ));
+            game.boards[PUZZLES.len() + slot] = Progress {
+                cells,
+                hints: record.hints.min(9999),
+            };
+        }
         if let Some(index) = PUZZLES.iter().position(|p| p.id == save.selected) {
             game.choose(index);
+        } else if let Some(size) = Size::ALL
+            .into_iter()
+            .find(|s| generator::id(*s) == save.selected)
+        {
+            game.choose(PUZZLES.len() + size.index());
         }
         game
     }
     pub fn encode(&self) -> String {
         let save = Save {
-            version: 1,
+            version: 2,
             selected: self.puzzle().id.into(),
             boards: PUZZLES
                 .iter()
@@ -378,17 +476,55 @@ impl Game {
                     hints: progress.hints,
                 })
                 .collect(),
+            endless: self
+                .endless
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, puzzle)| {
+                    let p = puzzle.as_ref()?;
+                    let progress = &self.boards[PUZZLES.len() + slot];
+                    Some(EndlessRecord {
+                        side: p.size.side(),
+                        seed: p.seed,
+                        number: p.number,
+                        solution: p.solution.clone(),
+                        cells: progress.cells.iter().map(|c| c.code()).collect(),
+                        hints: progress.hints,
+                        recent: p.recent.clone(),
+                    })
+                })
+                .collect(),
         };
         serde_json::to_string(&save).expect("Nonogram save contains only finite integer data")
     }
     pub fn selected(&self) -> usize {
         self.selected
     }
-    pub fn puzzle(&self) -> &'static Puzzle {
-        &PUZZLES[self.selected]
+    pub fn puzzle(&self) -> ActivePuzzle<'_> {
+        if self.is_endless() {
+            let p = self.endless[self.selected - PUZZLES.len()]
+                .as_ref()
+                .expect("selected generated board");
+            ActivePuzzle {
+                id: generator::id(p.size),
+                name: &p.name,
+                side: p.size.side(),
+                original: None,
+                solution: Some(&p.solution),
+            }
+        } else {
+            let p = &PUZZLES[self.selected];
+            ActivePuzzle {
+                id: p.id,
+                name: p.name,
+                side: p.rows.len(),
+                original: Some(p),
+                solution: None,
+            }
+        }
     }
     pub fn side(&self) -> usize {
-        self.puzzle().rows.len()
+        self.puzzle().side
     }
     pub fn cells(&self) -> &[Cell] {
         &self.boards[self.selected].cells
@@ -408,6 +544,19 @@ impl Game {
             .map_or(0, |p| p.cells.iter().filter(|c| **c != Cell::Blank).count())
     }
     pub fn completed(&self, index: usize) -> bool {
+        if let Some(slot) = index.checked_sub(PUZZLES.len()) {
+            return self
+                .endless
+                .get(slot)
+                .and_then(Option::as_ref)
+                .is_some_and(|p| {
+                    self.boards[index]
+                        .cells
+                        .iter()
+                        .zip(&p.solution)
+                        .all(|(c, filled)| (*c == Cell::Filled) == *filled)
+                });
+        }
         self.boards
             .get(index)
             .zip(PUZZLES.get(index))
@@ -423,7 +572,12 @@ impl Game {
         self.completed(self.selected)
     }
     pub fn choose(&mut self, index: usize) -> bool {
-        if index >= PUZZLES.len() {
+        if index >= PUZZLES.len()
+            && !self
+                .endless
+                .get(index - PUZZLES.len())
+                .is_some_and(Option::is_some)
+        {
             return false;
         }
         self.cancel_stroke();
@@ -431,6 +585,43 @@ impl Game {
         self.undo.clear();
         (self.row_clues, self.column_clues) = self.puzzle().clues();
         true
+    }
+    pub fn is_endless(&self) -> bool {
+        self.selected >= PUZZLES.len()
+    }
+    pub fn has_library_progress(&self) -> bool {
+        (0..PUZZLES.len()).any(|i| self.marked(i) > 0)
+    }
+    pub fn endless_index(size: Size) -> usize {
+        PUZZLES.len() + size.index()
+    }
+    pub fn endless_number(&self, size: Size) -> Option<u64> {
+        self.endless[size.index()].as_ref().map(|p| p.number)
+    }
+    /// Resume a saved generated board, or generate the first one on demand.
+    pub fn choose_endless(&mut self, size: Size, seed: u64) {
+        if self.endless[size.index()].is_none() {
+            self.next_endless(size, seed);
+        } else {
+            self.choose(Self::endless_index(size));
+        }
+    }
+    pub fn next_endless(&mut self, size: Size, seed: u64) {
+        self.cancel_stroke();
+        let previous = self.endless[size.index()].as_ref();
+        let number = previous.map_or(1, |p| p.number.saturating_add(1));
+        let recent = previous.map_or_else(Vec::new, |p| p.recent.clone());
+        let puzzle = Generated::new(size, seed, number, recent);
+        let index = Self::endless_index(size);
+        while self.boards.len() <= index {
+            self.boards.push(Progress::default());
+        }
+        self.boards[index] = Progress {
+            cells: vec![Cell::Blank; size.side().pow(2)],
+            hints: 0,
+        };
+        self.endless[size.index()] = Some(puzzle);
+        self.choose(index);
     }
     /// A drag always paints the state chosen at its first cell. Revisiting a cell
     /// never toggles it again, and the complete stroke is one undo operation.
@@ -595,6 +786,9 @@ pub fn line_patterns(side: usize, clues: &[usize]) -> Vec<u16> {
 pub fn solves_by_lines(puzzle: &Puzzle) -> bool {
     let side = puzzle.rows.len();
     let (row_clues, col_clues) = puzzle.clues();
+    solve_clues(side, &row_clues, &col_clues)
+}
+fn solve_clues(side: usize, row_clues: &[Vec<usize>], col_clues: &[Vec<usize>]) -> bool {
     let mut rows = row_clues
         .iter()
         .map(|c| line_patterns(side, c))
@@ -643,6 +837,73 @@ pub fn solves_by_lines(puzzle: &Puzzle) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn endless_resumes_each_size_and_preserves_the_picture_pack() {
+        let mut game = Game::new();
+        game.begin_stroke(0, Cell::Cross);
+        game.finish_stroke();
+        for size in Size::ALL {
+            game.choose_endless(size, 123 + size.side() as u64);
+            assert!(!game.won());
+            game.hint();
+            assert_eq!(game.hints(), 1);
+        }
+        let saved = game.encode();
+        let mut restored = Game::restore(&saved);
+        assert!(restored.is_endless());
+        assert_eq!(restored.side(), 15);
+        assert_eq!(restored.encode(), saved);
+        for size in Size::ALL {
+            restored.choose_endless(size, 999);
+            assert_eq!(restored.endless_number(size), Some(1));
+            assert_eq!(restored.marked(Game::endless_index(size)), 1);
+            assert_eq!(restored.hints(), 1);
+        }
+        restored.choose(0);
+        assert_eq!(restored.cells()[0], Cell::Cross);
+        restored.choose_endless(Size::Small, 999);
+        while !restored.won() {
+            assert!(restored.hint().is_some());
+        }
+        let before: Vec<_> = (0..25).map(|i| restored.puzzle().filled(i)).collect();
+        restored.next_endless(Size::Small, 128);
+        assert_eq!(restored.endless_number(Size::Small), Some(2));
+        assert_eq!(restored.hints(), 0);
+        assert_eq!(restored.marked(restored.selected()), 0);
+        assert_ne!(
+            before,
+            (0..25)
+                .map(|i| restored.puzzle().filled(i))
+                .collect::<Vec<_>>()
+        );
+        restored.choose_endless(Size::Large, 128);
+        assert_eq!(restored.hints(), 1);
+    }
+    #[test]
+    fn endless_restore_rejects_ambiguous_or_corrupted_boards_and_migrates_v1() {
+        let legacy = r#"{"version":1,"selected":"heart","boards":[{"id":"heart","cells":[2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}]}"#;
+        let mut game = Game::restore(legacy);
+        assert_eq!(game.cells()[0], Cell::Cross);
+        game.choose_endless(Size::Small, 7);
+        let value: serde_json::Value = serde_json::from_str(&game.encode()).unwrap();
+        for key in ["solution", "cells", "number", "side"] {
+            let mut bad = value.clone();
+            bad["endless"][0][key] = match key {
+                "solution" => {
+                    serde_json::json!((0..25).map(|i| i / 5 == i % 5).collect::<Vec<_>>())
+                }
+                "cells" => serde_json::json!(vec![9; 25]),
+                "number" => serde_json::json!(0),
+                _ => serde_json::json!(20),
+            };
+            let restored = Game::restore(&bad.to_string());
+            assert!(!restored.is_endless());
+            assert_eq!(restored.cells()[0], Cell::Cross);
+        }
+        let mut future = value;
+        future["version"] = serde_json::json!(255);
+        assert_eq!(Game::restore(&future.to_string()).marked(0), 0);
+    }
     #[test]
     fn every_picture_has_valid_dimensions_and_a_unique_logical_solution() {
         for puzzle in PUZZLES {

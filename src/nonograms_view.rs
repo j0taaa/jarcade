@@ -111,6 +111,7 @@ pub struct NonogramsPage {
     configuring: bool,
     size: Size,
     pending: usize,
+    endless: bool,
     tool: Tool,
     pan: BoardPan,
     pinch: PinchZoom,
@@ -130,7 +131,12 @@ pub struct NonogramsPage {
 impl NonogramsPage {
     pub fn new(game: Game) -> Self {
         let size = game.puzzle().size();
-        let pending = game.selected();
+        let endless = game.is_endless() || !game.has_library_progress();
+        let pending = if game.is_endless() {
+            PUZZLES.iter().position(|p| p.size() == size).unwrap_or(0)
+        } else {
+            game.selected()
+        };
         Self {
             game,
             revision: 0,
@@ -138,6 +144,7 @@ impl NonogramsPage {
             configuring: true,
             size,
             pending,
+            endless,
             tool: Tool::Fill,
             pan: BoardPan::default(),
             pinch: PinchZoom::default(),
@@ -207,6 +214,18 @@ impl NonogramsPage {
         if self.reset_confirm {
             return "Jarcade. Nonograms. Clear this picture? Your progress can still be restored with Undo. Clear or Cancel.".into();
         }
+        if self.configuring && self.endless {
+            return format!(
+                "Jarcade. Nonograms. Endless puzzles. {}. Puzzle {}. {}. Play to begin.",
+                self.size.name(),
+                self.game.endless_number(self.size).unwrap_or(1),
+                if self.game.completed(Game::endless_index(self.size)) {
+                    "Completed. Next puzzle available"
+                } else {
+                    "Progress saved separately for each size"
+                }
+            );
+        }
         if self.configuring {
             let number = PUZZLES
                 .iter()
@@ -228,9 +247,19 @@ impl NonogramsPage {
         }
         if self.game.won() {
             return format!(
-                "Jarcade. Nonograms. Picture complete: {}. {} hints used. Choose the next picture or go back.",
+                "Jarcade. Nonograms. {} complete: {}. {} hints used. Choose the next {} or go back.",
+                if self.game.is_endless() {
+                    "Puzzle"
+                } else {
+                    "Picture"
+                },
                 self.game.puzzle().name,
-                self.game.hints()
+                self.game.hints(),
+                if self.game.is_endless() {
+                    "puzzle"
+                } else {
+                    "picture"
+                }
             );
         }
         format!(
@@ -256,7 +285,16 @@ impl NonogramsPage {
     }
     fn start(&mut self) {
         self.cancel_gesture();
-        self.game.choose(self.pending);
+        if self.endless {
+            let seed = super::seed();
+            if self.game.completed(Game::endless_index(self.size)) {
+                self.game.next_endless(self.size, seed);
+            } else {
+                self.game.choose_endless(self.size, seed);
+            }
+        } else {
+            self.game.choose(self.pending);
+        }
         self.configuring = false;
         self.selected = 0;
         self.keyboard = false;
@@ -285,6 +323,12 @@ impl NonogramsPage {
             "Nonograms".into()
         } else if self.game.won() {
             self.game.puzzle().name.into()
+        } else if self.game.is_endless() {
+            format!(
+                "{} · ∞ {}",
+                self.size.name(),
+                self.game.endless_number(self.size).unwrap_or(1)
+            )
         } else {
             format!("{} · {}", self.size.name(), self.pending % 4 + 1)
         };
@@ -320,10 +364,28 @@ impl NonogramsPage {
                 self.revision += 1;
             }
         }
-        if !short {
-            ui.label(self.size.description(), x + 4., 148., 14., ui.theme.muted);
+        let modes = Rect::new(x, 126., width, 48.);
+        bordered(modes, 18., ui.theme.line, ui.theme.bg);
+        for (i, label) in ["Endless", "Pictures"].into_iter().enumerate() {
+            let rect = Rect::new(
+                x + 4. + i as f32 * (width - 8.) * 0.5,
+                128.,
+                (width - 8.) * 0.5,
+                44.,
+            );
+            if ui.tab(label, rect, self.endless == (i == 0)) {
+                self.endless = i == 0;
+                self.revision += 1;
+            }
         }
-        let top = if short { 130. } else { 164. };
+        if self.endless {
+            self.endless_setup(ui, x, width);
+            return;
+        }
+        if !short {
+            ui.label(self.size.description(), x + 4., 202., 14., ui.theme.muted);
+        }
+        let top = if short { 184. } else { 218. };
         let bottom = screen_height() - if self.save_failed { 90. } else { 72. };
         let columns = if width >= 600. { 4 } else { 2 };
         let rows = if columns == 4 { 1 } else { 2 };
@@ -357,10 +419,23 @@ impl NonogramsPage {
             );
             let solved = self.game.completed(index);
             let marked = self.game.marked(index);
-            let icon_side = (card_h - 36.).min(card_w - 36.).max(14.);
+            let compact = card_h < 88.;
+            let icon_side = if compact {
+                (card_h - 18.).min(card_w * 0.26)
+            } else {
+                (card_h - 36.).min(card_w - 36.).max(14.)
+            };
             let icon = Rect::new(
-                rect.center().x - icon_side * 0.5,
-                rect.y + 9.,
+                if compact {
+                    rect.x + 10.
+                } else {
+                    rect.center().x - icon_side * 0.5
+                },
+                if compact {
+                    rect.center().y - icon_side * 0.5
+                } else {
+                    rect.y + 9.
+                },
                 icon_side,
                 icon_side,
             );
@@ -395,26 +470,40 @@ impl NonogramsPage {
                     }
                 }
             }
+            let compact_label = format!("Picture {}", number + 1);
             ui.centered(
                 if solved {
                     PUZZLES[index].name
+                } else if compact {
+                    &compact_label
                 } else if marked > 0 {
                     "Continue"
                 } else {
                     "Hidden picture"
                 },
-                Rect::new(rect.x + 2., rect.bottom() - 30., rect.w - 4., 22.),
+                if compact {
+                    Rect::new(
+                        icon.right() + 5.,
+                        rect.center().y - 11.,
+                        rect.right() - icon.right() - 8.,
+                        22.,
+                    )
+                } else {
+                    Rect::new(rect.x + 2., rect.bottom() - 30., rect.w - 4., 22.)
+                },
                 if card_w < 150. { 12. } else { 14. },
                 ui.theme.text,
                 true,
             );
-            ui.label(
-                &(number + 1).to_string(),
-                rect.x + 12.,
-                rect.y + 22.,
-                12.,
-                if active { CORAL } else { ui.theme.muted },
-            );
+            if !compact {
+                ui.label(
+                    &(number + 1).to_string(),
+                    rect.x + 12.,
+                    rect.y + 22.,
+                    12.,
+                    if active { CORAL } else { ui.theme.muted },
+                );
+            }
             if ui.hit(rect) {
                 self.pending = index;
                 self.revision += 1;
@@ -425,6 +514,72 @@ impl NonogramsPage {
             "View picture"
         } else if self.game.marked(self.pending) > 0 {
             "Continue picture"
+        } else {
+            "Play"
+        };
+        if ui.button(label, button, true) {
+            self.start();
+            ui.reset_focus();
+        }
+        if self.save_failed {
+            ui.centered(
+                "Progress could not be saved",
+                Rect::new(x, button.y - 27., width, 22.),
+                12.,
+                CORAL,
+                false,
+            );
+        }
+    }
+    fn endless_setup(&mut self, ui: &mut Ui, x: f32, width: f32) {
+        let index = Game::endless_index(self.size);
+        let number = self.game.endless_number(self.size).unwrap_or(1);
+        let bottom = screen_height() - if self.save_failed { 94. } else { 76. };
+        let panel = Rect::new(x, 186., width, (bottom - 186.).clamp(52., 240.));
+        bordered(panel, 22., ui.theme.line, ui.theme.bg);
+        let compact = panel.h < 140.;
+        let accent = if ui.theme.saver {
+            ui.theme.accent
+        } else {
+            CORAL
+        };
+        let symbol = if compact {
+            Rect::new(panel.x + 10., panel.y, 66., panel.h)
+        } else {
+            Rect::new(panel.x, panel.y + 6., panel.w, panel.h * 0.56)
+        };
+        ui.centered("∞", symbol, if compact { 40. } else { 70. }, accent, true);
+        let title = format!("Puzzle {number}");
+        let text = if compact {
+            Rect::new(
+                panel.x + 78.,
+                panel.y + (panel.h - 50.) * 0.5,
+                panel.w - 88.,
+                25.,
+            )
+        } else {
+            Rect::new(panel.x, panel.y + panel.h * 0.57, panel.w, 30.)
+        };
+        ui.centered(&title, text, 19., ui.theme.text, true);
+        let status = if self.game.completed(index) {
+            "Complete · ready for the next?"
+        } else if self.game.marked(index) > 0 {
+            "Your progress is saved"
+        } else {
+            "New puzzles, no limit"
+        };
+        ui.centered(
+            status,
+            Rect::new(text.x, text.bottom(), text.w, 22.),
+            if compact { 11. } else { 13. },
+            ui.theme.muted,
+            false,
+        );
+        let button = Rect::new(x, screen_height() - 60., width, 48.);
+        let label = if self.game.completed(index) {
+            "Next puzzle"
+        } else if self.game.marked(index) > 0 {
+            "Continue puzzle"
         } else {
             "Play"
         };
@@ -528,14 +683,31 @@ impl NonogramsPage {
         if self.game.won() {
             if landscape {
                 ui.centered(
-                    "Picture revealed!",
+                    if self.game.is_endless() {
+                        "Puzzle solved!"
+                    } else {
+                        "Picture revealed!"
+                    },
                     Rect::new(10., 170., 186., 32.),
                     15.,
                     ui.theme.accent,
                     true,
                 );
             }
-            if ui.button("Next picture", tools, true) {
+            if ui.button(
+                if self.game.is_endless() {
+                    "Next puzzle"
+                } else {
+                    "Next picture"
+                },
+                tools,
+                true,
+            ) {
+                if self.game.is_endless() {
+                    self.start();
+                    ui.reset_focus();
+                    return Some(Pulse::Tap);
+                }
                 self.cancel_gesture();
                 let next = (self.game.selected() + 1) % PUZZLES.len();
                 self.pending = next;

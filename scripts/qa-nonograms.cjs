@@ -30,6 +30,9 @@ const clueGeometry = (w, h, side, left, top) => {
       },saver);
       const p = await c.newPage();p.on('pageerror',e=>errors.push(e.message));
       await p.goto(`${base}/?game=nonograms`);await p.waitForFunction(()=>!document.getElementById('loading'));
+      await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label')?.includes('Endless puzzles'));
+      const width=Math.min(w-24,720),x=(w-width)/2;
+      await p.touchscreen.tap(x+width*.75,152);
       await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label')?.includes('Choose a picture'));
       return [c,p];
     };

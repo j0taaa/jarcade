@@ -264,6 +264,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-multiplayer-layou
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-wolves.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-codenames.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-endless.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -452,8 +453,11 @@ Artwork and word decks are original; this is an independent adaptation.
 ## Nonograms
 
 Choose **Single player → Nonograms**, or open `?game=nonograms`. Choose a 5×5,
-10×10, or 15×15 board from twelve original picture puzzles. Every shipped
-puzzle is tested to have a unique solution obtainable through line deductions.
+10×10, or 15×15 board. **Endless** generates fresh abstract mosaics offline;
+**Pictures** keeps the twelve original picture puzzles. Every generated board
+is checked for a unique solution obtainable through line deductions, without
+guessing. Generation uses a bounded attempt budget with a guaranteed logical
+fallback, and avoids repeating the last 32 puzzles at each size.
 Numbers beside a row or column describe runs of filled cells, with at least
 one empty cell between runs. Fill the picture to win; crossing empty cells is
 optional, and extra filled cells prevent completion.
@@ -463,8 +467,10 @@ one undo operation; revisiting a cell does not toggle it repeatedly. Use
 **Move** to pan, or pinch/zoom to adjust the board. Canceled or multitouch paint
 gestures roll back their unfinished stroke. Undo, hints, and reset support
 experimentation. Board progress is saved separately for every puzzle, in
-browser storage or the native app-data folder; invalid or unavailable storage
-never prevents play. The game works offline after loading and has no recurring
+browser storage or the native app-data folder. Endless keeps the current puzzle,
+number, and progress separately for each size; finish it and choose **Next puzzle**
+to generate another. Existing picture saves remain compatible. Invalid or
+unavailable storage never prevents play. The game works offline after loading and has no recurring
 idle timer, including with the FPS counter enabled.
 
 Keyboard: arrows select cells, **Space** paints, **X** crosses, **F/C/V** choose

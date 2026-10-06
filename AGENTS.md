@@ -20,4 +20,4 @@
 - Wolvesville uses private online rooms for 6–16 friends, Classic/Advanced/custom role lists, original vector portraits, private roles/findings/pack/ghost chats, and server-timed nights, discussion and secret majority votes. Validate setups and advanced powers on the server, preserve reconnect seats, and redraw static matches only for events or the one-second countdown.
 
 - Codenames uses online red/blue teams, private spymaster keys, English/Portuguese word boards, and server-validated clues and guesses. Never send unrevealed identities to operatives; preserve team seats on reconnect.
-- Nonograms is offline single player with original, uniquely solvable picture puzzles, board sizes, Fill/Cross/Move tools, touch painting, undo/hints, zoom/pan, and saved progress. Keep the board and launch gallery usable on small screens without idle redraws.
+- Nonograms is offline single player with original, uniquely solvable picture puzzles and endless generated logical puzzles, board sizes, Fill/Cross/Move tools, touch painting, undo/hints, zoom/pan, and saved progress. Keep the board and launch gallery usable on small screens without idle redraws.
