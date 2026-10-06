@@ -4,13 +4,14 @@ const assert = require('node:assert/strict');
 const { mkdirSync } = require('node:fs');
 const base = process.env.JARCADE_QA_URL || 'http://127.0.0.1:8092';
 const artifacts = '/tmp/jarcade-nonograms-qa';
+const { setup } = require('./nonograms-layout.cjs');
 mkdirSync(artifacts, { recursive: true });
 const sizes = [[280,360],[320,480],[390,844],[568,320],[768,1024],[1440,900]];
 const clueGeometry = (w, h, side, left, top) => {
   const landscape = w >= 540 && h < 500;
-  const boardWidth=Math.min(w-20,720);
-  const view = landscape ? [210,58,w-220,h-70] : [(w-boardWidth)/2,106,boardWidth,Math.max(62,h-228)];
-  const zoom = Math.max(.69,Math.min(w>=600?2.5:1.6,view[2]/((side+left)*32),view[3]/((side+top)*32)));
+  const boardWidth=Math.min(w-24,780);
+  const view = landscape ? [174,62,w-190,h-78] : [(w-boardWidth)/2,112,boardWidth,h-192];
+  const zoom = Math.max(.69,Math.min(2.5,view[2]/((side+left)*32),view[3]/((side+top)*32)));
   const unit = 32*zoom;
   const x = view[0] + Math.max(0,(view[2]-(side+left)*unit)/2)+left*unit;
   const y = view[1] + Math.max(0,(view[3]-(side+top)*unit)/2)+top*unit;
@@ -31,8 +32,7 @@ const clueGeometry = (w, h, side, left, top) => {
       const p = await c.newPage();p.on('pageerror',e=>errors.push(e.message));
       await p.goto(`${base}/?game=nonograms`);await p.waitForFunction(()=>!document.getElementById('loading'));
       await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label')?.includes('Endless puzzles'));
-      const width=Math.min(w-24,720),x=(w-width)/2;
-      await p.touchscreen.tap(x+width*.75,152);
+      await p.touchscreen.tap(...setup(w,h).mode(1));
       await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label')?.includes('Choose a picture'));
       return [c,p];
     };
@@ -44,9 +44,8 @@ const clueGeometry = (w, h, side, left, top) => {
       assert.equal(await p.evaluate(()=>getComputedStyle(document.body).backgroundColor),saver?'rgb(0, 0, 0)':'rgb(255, 255, 255)');
       await idle(p);await p.screenshot({path:`${artifacts}/setup-${w}x${h}-${saver}.png`,scale:'css'});
       for (const [number,side] of [5,10,15].entries()) {
-        const width=Math.min(w-24,720),x=(w-width)/2;
-        await p.touchscreen.tap(x+4+(number+.5)*(width-8)/3,92);
-        await p.touchscreen.tap(w/2,h-36);
+        await p.touchscreen.tap(...setup(w,h).size(number));
+        await p.touchscreen.tap(...setup(w,h).play);
         await p.waitForFunction(side=>document.querySelector('canvas').getAttribute('aria-label').includes(`${side} × ${side}. Fill mode`),side);
         await idle(p);await p.screenshot({path:`${artifacts}/board-${side}-${w}x${h}-${saver}.png`,scale:'css'});
         await p.keyboard.press('ArrowRight');await p.keyboard.press('Space');await p.waitForTimeout(100);
@@ -64,7 +63,7 @@ const clueGeometry = (w, h, side, left, top) => {
       console.log(`Nonogram layouts checked: ${w}×${h}, ${saver ? 'black' : 'white'}`);
     }
     const [c,p]=await contextFor(390,844);
-    await p.touchscreen.tap(195,808);await p.waitForTimeout(100);
+    await p.touchscreen.tap(...setup(390,844).play);await p.waitForTimeout(100);
     const geometry=clueGeometry(390,844,5,1.64,1.06);
     await p.mouse.move(...geometry.cell(0,1));await p.mouse.down();await p.mouse.move(...geometry.cell(4,1));await p.mouse.up();await p.waitForTimeout(100);
     let progress=await p.evaluate(()=>JSON.parse(localStorage.getItem('jarcade.nonograms.v1')));
@@ -101,7 +100,7 @@ const clueGeometry = (w, h, side, left, top) => {
     assert((await label(p)).includes('Picture complete: Heart'));
     await idle(p);await p.screenshot({path:`${artifacts}/completed.png`,scale:'css'});
     await p.reload();await p.waitForFunction(()=>!document.getElementById('loading'));await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Completed'));
-    await p.touchscreen.tap(195,808);await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Picture complete: Heart'));
+    await p.touchscreen.tap(...setup(390,844).play);await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Picture complete: Heart'));
     await idle(p);await c.close();assert.deepEqual(errors,[]);
     console.log('Nonograms: fast drag painting, whole-stroke undo, pinch rollback, hints/reset, full win, offline restore and idle frames passed.');
   } finally {await browser.close();}

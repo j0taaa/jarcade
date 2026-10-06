@@ -526,6 +526,13 @@ impl Game {
     pub fn side(&self) -> usize {
         self.puzzle().side
     }
+    /// Read-only progress for selection-screen thumbnails.
+    pub fn cells_for(&self, index: usize) -> Option<&[Cell]> {
+        self.boards
+            .get(index)
+            .filter(|p| !p.cells.is_empty())
+            .map(|p| p.cells.as_slice())
+    }
     pub fn cells(&self) -> &[Cell] {
         &self.boards[self.selected].cells
     }

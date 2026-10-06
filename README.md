@@ -265,6 +265,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-wolves.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-codenames.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-endless.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-ui.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -461,6 +462,12 @@ fallback, and avoids repeating the last 32 puzzles at each size.
 Numbers beside a row or column describe runs of filled cells, with at least
 one empty cell between runs. Fill the picture to win; crossing empty cells is
 optional, and extra filled cells prevent completion.
+
+The selection screen uses pixel-art cards and saved-progress previews. In play,
+the square, cross, and arrow icons select **Fill**, **Cross**, and **Move**; the
+active tool stays labeled. The curved arrow undoes, the bulb gives a hint, and
+the circular arrow opens reset. Minus/plus zoom; the corner icon fits the board.
+Keyboard focus shows labels, and **?** opens a visual icon guide.
 
 Use **Fill** or **Cross** to paint cells with a finger or mouse. Each stroke is
 one undo operation; revisiting a cell does not toggle it repeatedly. Use

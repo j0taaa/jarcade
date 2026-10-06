@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { mkdirSync } = require('node:fs');
 const base = process.env.JARCADE_QA_URL || 'http://127.0.0.1:8092';
 const artifacts = '/tmp/jarcade-endless-qa';
+const { setup } = require('./nonograms-layout.cjs');
 mkdirSync(artifacts, { recursive: true });
 const layouts = process.env.JARCADE_QA_FOCUS === 'compact' ? [[280,360],[568,320]] : [[280,360],[320,480],[390,844],[568,320],[768,1024],[1440,900]];
 (async () => {
@@ -37,10 +38,10 @@ const layouts = process.env.JARCADE_QA_FOCUS === 'compact' ? [[280,360],[568,320
       assert.deepEqual(await page.evaluate(()=>[document.querySelector('canvas').width,document.querySelector('canvas').height]),[w*3,h*3]);
       assert.equal(await page.evaluate(()=>getComputedStyle(document.body).backgroundColor),saver?'rgb(0, 0, 0)':'rgb(255, 255, 255)');
       await idle(page);await page.screenshot({path:`${artifacts}/setup-${w}x${h}-${saver}.png`,scale:'css'});
-      const width=Math.min(w-24,720),x=(w-width)/2;
+      const l=setup(w,h);
       for(const [i,side] of [5,10,15].entries()) {
-        await page.touchscreen.tap(x+4+(i+.5)*(width-8)/3,92);
-        await page.touchscreen.tap(w/2,h-36);
+        await page.touchscreen.tap(...l.size(i));
+        await page.touchscreen.tap(...l.play);
         await page.waitForFunction(side=>document.querySelector('canvas').getAttribute('aria-label').includes(`${side} × ${side}. Fill mode`),side);
         const initial=await saved(page),record=initial.endless.find(p=>p.side===side);
         assert.equal(record.number,1);assert.equal(record.solution.length,side*side);
@@ -55,29 +56,29 @@ const layouts = process.env.JARCADE_QA_FOCUS === 'compact' ? [[280,360],[568,320
       await page.reload();await page.waitForFunction(()=>document.querySelector('canvas')?.getAttribute('aria-label')?.includes('Endless puzzles'));
       assert.deepEqual(await saved(page),progress);
       for(const [i,side] of [5,10,15].entries()) {
-        await page.touchscreen.tap(x+4+(i+.5)*(width-8)/3,92);await page.touchscreen.tap(w/2,h-36);
+        await page.touchscreen.tap(...l.size(i));await page.touchscreen.tap(...l.play);
         await page.waitForFunction(side=>document.querySelector('canvas').getAttribute('aria-label').includes(`${side} × ${side}. Fill mode`),side);
         assert.equal((await saved(page)).endless.find(p=>p.side===side).hints,1);
         await page.keyboard.press('Escape');
       }
       // Complete a small puzzle through the actual UI, then request its successor.
-      await page.touchscreen.tap(x+4+.5*(width-8)/3,92);await page.touchscreen.tap(w/2,h-36);
+      await page.touchscreen.tap(...l.size(0));await page.touchscreen.tap(...l.play);
       for(let i=0;i<25 && !(await label(page)).includes('Puzzle complete');i++){await page.keyboard.press('h');await page.waitForTimeout(40);}
       assert((await label(page)).includes('Puzzle complete: Puzzle 1'));
       const done=await saved(page),old=done.endless.find(p=>p.side===5);
-      await page.touchscreen.tap(w>=540&&h<500?103:w/2,h-36);
+      await page.touchscreen.tap(w>=540&&h<500?88:w/2,h-38);
       await page.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('5 × 5. Fill mode')&&!document.querySelector('canvas').getAttribute('aria-label').includes('Puzzle complete'));
       const next=(await saved(page)).endless.find(p=>p.side===5);
       assert.equal(next.number,2);assert.notDeepEqual(next.solution,old.solution);
       assert.equal(next.cells.filter(Boolean).length,0);assert.equal(next.hints,0);
       for(const side of [10,15]) assert.deepEqual((await saved(page)).endless.find(p=>p.side===side),done.endless.find(p=>p.side===side));
-      await page.keyboard.press('Escape');await page.touchscreen.tap(x+width*.75,152);
+      await page.keyboard.press('Escape');await page.touchscreen.tap(...l.mode(1));
       await page.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Choose a picture'));
-      await page.touchscreen.tap(w/2,h-36);
+      await page.touchscreen.tap(...l.play);
       await page.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('5 × 5. Fill mode'));
       await page.keyboard.press('h');await page.waitForTimeout(100);
       assert.equal((await saved(page)).boards[0].hints,1);
-      await page.keyboard.press('Escape');await page.touchscreen.tap(x+width*.25,152);await page.touchscreen.tap(w/2,h-36);
+      await page.keyboard.press('Escape');await page.touchscreen.tap(...l.mode(0));await page.touchscreen.tap(...l.play);
       await page.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('5 × 5. Fill mode'));
       assert.equal((await saved(page)).selected,'endless-5');
       assert.deepEqual((await saved(page)).endless.find(p=>p.side===5),next);

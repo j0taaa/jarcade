@@ -1112,7 +1112,12 @@ async fn main() {
                     app.online.revision,
                     app.wavelength.revision,
                     app.tennis.game.revision,
-                    app.nonograms.revision,
+                    (
+                        app.nonograms.revision,
+                        (app.screen == Screen::Nonograms)
+                            .then(|| ui.focused_item())
+                            .flatten(),
+                    ),
                     app.multiplayer,
                 ),
                 app.fih.round.as_ref().map(|r| {
@@ -1131,7 +1136,7 @@ async fn main() {
                 Screen::Multiplayer => app.online.announcement(),
                 Screen::Wavelength => app.wavelength.announcement(),
                 Screen::Tennis => app.tennis.announcement(),
-                Screen::Nonograms => app.nonograms.announcement(),
+                Screen::Nonograms => app.nonograms.announcement(ui.focused_item()),
                 Screen::Home => {
                     if app.multiplayer {
                         "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, or Codenames. Coupe, Dicksit, Wolvesville and Codenames use online rooms; Wavelength is local on this device.".to_owned()

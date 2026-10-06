@@ -1,4 +1,4 @@
-use crate::ui::{CORAL, Icon, Theme, Ui, bordered, rounded};
+use crate::ui::{CORAL, Theme, Ui, bordered, rounded};
 use jarcade::{
     board_pan::{BoardPan, PinchZoom},
     feedback::Pulse,
@@ -6,6 +6,239 @@ use jarcade::{
     nonograms::{Cell, Game, PUZZLES, Size},
 };
 use macroquad::prelude::*;
+mod layout;
+use layout::{SetupLayout, board_viewport, landscape};
+
+fn puzzle_theme(saver: bool) -> Theme {
+    Theme {
+        bg: if saver { BLACK } else { WHITE },
+        panel: if saver {
+            BLACK
+        } else {
+            color_u8!(248, 246, 252, 255)
+        },
+        line: if saver {
+            color_u8!(58, 53, 68, 255)
+        } else {
+            color_u8!(228, 222, 237, 255)
+        },
+        text: if saver {
+            color_u8!(245, 241, 255, 255)
+        } else {
+            color_u8!(43, 35, 63, 255)
+        },
+        muted: if saver {
+            color_u8!(170, 160, 188, 255)
+        } else {
+            color_u8!(132, 120, 150, 255)
+        },
+        accent: CORAL,
+        saver,
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Glyph {
+    Back,
+    Help,
+    Undo,
+    Hint,
+    Reset,
+    Minus,
+    Fit,
+    Plus,
+    Arrow,
+    Gallery,
+    Infinity,
+}
+fn glyph(g: Glyph, c: Vec2, color: Color) {
+    let line = |a: Vec2, b: Vec2| draw_line(c.x + a.x, c.y + a.y, c.x + b.x, c.y + b.y, 1.8, color);
+    match g {
+        Glyph::Back | Glyph::Arrow => {
+            let d = if matches!(g, Glyph::Back) { -1. } else { 1. };
+            line(vec2(-8., 0.), vec2(8., 0.));
+            line(vec2(3. * d, -5.), vec2(8. * d, 0.));
+            line(vec2(3. * d, 5.), vec2(8. * d, 0.));
+        }
+        Glyph::Minus | Glyph::Plus => {
+            line(vec2(-7., 0.), vec2(7., 0.));
+            if matches!(g, Glyph::Plus) {
+                line(vec2(0., -7.), vec2(0., 7.));
+            }
+        }
+        Glyph::Fit => {
+            for d in [vec2(-1., -1.), vec2(1., -1.), vec2(-1., 1.), vec2(1., 1.)] {
+                let p = d * 7.;
+                line(p, p - vec2(d.x * 4., 0.));
+                line(p, p - vec2(0., d.y * 4.));
+            }
+        }
+        Glyph::Hint => {
+            draw_circle_lines(c.x, c.y - 3., 6., 1.8, color);
+            line(vec2(-3., 2.), vec2(-3., 6.));
+            line(vec2(3., 2.), vec2(3., 6.));
+            line(vec2(-3., 6.), vec2(3., 6.));
+            line(vec2(-2., 9.), vec2(2., 9.));
+            for d in [vec2(-1., 0.), vec2(1., 0.), vec2(0., -1.)] {
+                line(d * 10. + vec2(0., -3.), d * 12. + vec2(0., -3.));
+            }
+        }
+        Glyph::Undo => {
+            line(vec2(-8., -3.), vec2(1., -3.));
+            line(vec2(-8., -3.), vec2(-3., -8.));
+            line(vec2(-8., -3.), vec2(-3., 2.));
+            for i in 0..16 {
+                let a = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * i as f32 / 16.;
+                let b = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * (i + 1) as f32 / 16.;
+                line(
+                    vec2(1. + a.cos() * 5., 2. + a.sin() * 5.),
+                    vec2(1. + b.cos() * 5., 2. + b.sin() * 5.),
+                );
+            }
+            line(vec2(1., 7.), vec2(-4., 7.));
+        }
+        Glyph::Reset => {
+            let start = -std::f32::consts::FRAC_PI_2;
+            let end = std::f32::consts::PI * 1.27;
+            for i in 0..24 {
+                let a = start + (end - start) * i as f32 / 24.;
+                let b = start + (end - start) * (i + 1) as f32 / 24.;
+                line(vec2(a.cos(), a.sin()) * 7., vec2(b.cos(), b.sin()) * 7.);
+            }
+            let p = vec2(end.cos(), end.sin()) * 7.;
+            let d = vec2(-end.sin(), end.cos());
+            let n = vec2(-d.y, d.x);
+            line(p, p - d * 4. + n * 3.);
+            line(p, p - d * 4. - n * 3.);
+        }
+        Glyph::Help => {
+            draw_circle_lines(c.x, c.y, 10., 1.5, color);
+            line(vec2(-3., -4.), vec2(0., -6.));
+            line(vec2(0., -6.), vec2(4., -3.));
+            line(vec2(4., -3.), vec2(0., 1.));
+            line(vec2(0., 1.), vec2(0., 3.));
+            draw_circle(c.x, c.y + 6., 1., color);
+        }
+        Glyph::Gallery => {
+            for y in 0..2 {
+                for x in 0..2 {
+                    rounded(
+                        Rect::new(c.x - 8. + x as f32 * 9., c.y - 8. + y as f32 * 9., 6., 6.),
+                        1.5,
+                        color,
+                    );
+                }
+            }
+        }
+        Glyph::Infinity => {
+            let mut last = c + vec2(-10., 0.);
+            for i in 1..=48 {
+                let t = std::f32::consts::TAU * i as f32 / 48.;
+                let p = c + vec2(-10. * t.cos(), 5. * (2. * t).sin());
+                draw_line(last.x, last.y, p.x, p.y, 1.8, color);
+                last = p;
+            }
+        }
+    }
+}
+fn icon_button(ui: &mut Ui, g: Glyph, rect: Rect) -> bool {
+    glyph(g, rect.center(), ui.theme.text);
+    ui.hit(rect)
+}
+fn primary_button(ui: &mut Ui, label: &str, rect: Rect) -> bool {
+    if ui.theme.saver {
+        bordered(rect, 16., ui.theme.accent, BLACK);
+    } else {
+        rounded(rect, 16., ui.theme.text);
+    }
+    let color = if ui.theme.saver {
+        ui.theme.accent
+    } else {
+        WHITE
+    };
+    ui.centered(
+        label,
+        Rect::new(rect.x + 20., rect.y, rect.w - 48., rect.h),
+        if rect.w < 200. { 13. } else { 16. },
+        color,
+        true,
+    );
+    glyph(
+        Glyph::Arrow,
+        vec2(rect.right() - 24., rect.center().y),
+        color,
+    );
+    ui.hit(rect)
+}
+
+// A pixel emblem for fresh boards; saved boards show actual player marks.
+const ENDLESS_MARK: [&str; 9] = [
+    "..........",
+    "..........",
+    ".###..###.",
+    "##.####.##",
+    "##..##..##",
+    "##.####.##",
+    ".###..###.",
+    "..........",
+    "..........",
+];
+const HIDDEN_MARK: [&str; 9] = [
+    "..####...",
+    ".##..##..",
+    ".....##..",
+    "....##...",
+    "...##....",
+    "...##....",
+    ".........",
+    "...##....",
+    ".........",
+];
+fn mosaic(ui: &Ui, rect: Rect, cells: Option<&[Cell]>, endless: bool) {
+    let side = cells.map_or(if endless { 10 } else { 9 }, |c| {
+        (c.len() as f32).sqrt() as usize
+    });
+    let unit = rect.w / side as f32;
+    let gap = (unit * 0.09).clamp(0.6, 2.4);
+    for y in 0..side {
+        for x in 0..side {
+            let cell = cells.map_or_else(
+                || {
+                    let filled = if endless {
+                        y < ENDLESS_MARK.len() && ENDLESS_MARK[y].as_bytes()[x] == b'#'
+                    } else {
+                        HIDDEN_MARK[y].as_bytes()[x] == b'#'
+                    };
+                    if filled { Cell::Filled } else { Cell::Blank }
+                },
+                |cells| cells[y * side + x],
+            );
+            let r = Rect::new(
+                rect.x + x as f32 * unit + gap,
+                rect.y + y as f32 * unit + gap,
+                unit - gap * 2.,
+                unit - gap * 2.,
+            );
+            let color = if cell == Cell::Filled {
+                if cells.is_none() {
+                    ui.theme.accent
+                } else {
+                    ui.theme.text
+                }
+            } else if ui.theme.saver {
+                ui.theme.line
+            } else {
+                color_u8!(242, 238, 249, 255)
+            };
+            if !ui.theme.saver || cell != Cell::Blank {
+                rounded(r, (unit * 0.15).min(3.), color);
+            }
+            if cell == Cell::Cross {
+                draw_tool(Tool::Cross, r.center(), unit * 0.4, ui.theme.muted);
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tool {
@@ -40,17 +273,7 @@ impl BoardGeometry {
     fn new(game: &Game) -> Self {
         let w = screen_width();
         let h = screen_height();
-        let landscape = w >= 540. && h < 500.;
-        let viewport = if landscape {
-            Rect::new(210., 58., w - 220., h - 70.)
-        } else {
-            Rect::new(
-                (w - (w - 20.).min(720.)) * 0.5,
-                106.,
-                (w - 20.).min(720.),
-                (h - 228.).max(62.),
-            )
-        };
+        let viewport = board_viewport(w, h);
         let left = game
             .row_clues()
             .iter()
@@ -207,9 +430,53 @@ impl NonogramsPage {
     pub fn needs_frame(&self) -> bool {
         self.mouse_active || self.drawn_revision != self.revision
     }
-    pub fn announcement(&self) -> String {
+    pub fn announcement(&self, focus: Option<usize>) -> String {
+        let mut message = self.state_announcement();
+        if let Some(label) = focus.and_then(|i| self.focused_label(i)) {
+            message.push_str(&format!(" Focused control: {label}. Enter to activate."));
+        }
+        message
+    }
+    fn focused_label(&self, i: usize) -> Option<String> {
         if self.help {
-            return "Jarcade. Nonograms. Fill runs of squares to match the numbers. Leave at least one empty square between runs. Cross marks empty squares. Drag to paint; choose Move to pan, or pinch to zoom. Undo and hints are available. Close help to continue.".into();
+            return (i == 0).then(|| "Got it".into());
+        }
+        if self.reset_confirm {
+            return ["Cancel", "Clear"].get(i).map(|s| (*s).into());
+        }
+        if i < 2 {
+            return Some(if i == 0 { "Back" } else { "Help" }.into());
+        }
+        if self.configuring {
+            match i {
+                2 => Some("Endless".into()),
+                3 => Some("Pictures".into()),
+                4..=6 => Some(Size::ALL[i - 4].name().into()),
+                7 if self.endless => Some(self.start_label().into()),
+                7..=10 if !self.endless => Some(format!("Picture {:02}", i - 6)),
+                11 if !self.endless => Some(self.start_label().into()),
+                _ => None,
+            }
+        } else if i < 8 {
+            ["Undo", "Hint", "Reset", "Zoom out", "Fit board", "Zoom in"]
+                .get(i - 2)
+                .map(|s| (*s).into())
+        } else if self.game.won() {
+            (i == 8).then(|| {
+                if self.game.is_endless() {
+                    "Next puzzle"
+                } else {
+                    "Next picture"
+                }
+                .into()
+            })
+        } else {
+            ["Fill", "Cross", "Move"].get(i - 8).map(|s| (*s).into())
+        }
+    }
+    fn state_announcement(&self) -> String {
+        if self.help {
+            return "Jarcade. Nonograms. Fill runs of squares to match the numbers. Leave at least one empty square between runs. Cross marks empty squares. Drag to paint; choose Move to pan, or pinch to zoom. Square: Fill. X: Cross. Arrows: Move. Curved arrow: Undo. Lightbulb: Hint. Circular arrow: Reset. Minus/plus: zoom. Corners: fit board. Close help to continue.".into();
         }
         if self.reset_confirm {
             return "Jarcade. Nonograms. Clear this picture? Your progress can still be restored with Undo. Clear or Cancel.".into();
@@ -308,315 +575,330 @@ impl NonogramsPage {
         let l = BoardGeometry::new(&self.game);
         self.pan.fit(l.viewport, l.base);
         // Large puzzles remain finger-sized; Move/pinch exposes overflow.
-        self.pan.zoom = self
-            .pan
-            .zoom
-            .clamp(0.69, if screen_width() >= 600. { 2.5 } else { 1.6 });
+        self.pan.zoom = self.pan.zoom.clamp(0.69, 2.5);
         self.pan.clamp(l.viewport, l.base * self.pan.zoom);
         self.viewport = vec2(screen_width(), screen_height());
     }
     fn header(&mut self, ui: &mut Ui) {
-        if ui.icon_button(Icon::Back, Rect::new(8., 6., 44., 44.), false) {
+        if icon_button(ui, Glyph::Back, Rect::new(8., 6., 44., 44.)) {
             self.home = self.back();
         }
         let title = if self.configuring {
             "Nonograms".into()
         } else if self.game.won() {
             self.game.puzzle().name.into()
-        } else if self.game.is_endless() {
-            format!(
-                "{} · ∞ {}",
-                self.size.name(),
-                self.game.endless_number(self.size).unwrap_or(1)
-            )
         } else {
-            format!("{} · {}", self.size.name(), self.pending % 4 + 1)
+            format!(
+                "Puzzle {:02}",
+                if self.game.is_endless() {
+                    self.game.endless_number(self.size).unwrap_or(1)
+                } else {
+                    (self.pending % 4 + 1) as u64
+                }
+            )
         };
         ui.centered(
             &title,
-            Rect::new(58., 6., screen_width() - 116., 44.),
-            if screen_width() < 330. { 17. } else { 20. },
+            Rect::new(56., 6., screen_width() - 112., 44.),
+            20.,
             ui.theme.text,
             true,
         );
-        if ui.button("?", Rect::new(screen_width() - 52., 6., 44., 44.), false) {
+        if icon_button(
+            ui,
+            Glyph::Help,
+            Rect::new(screen_width() - 52., 6., 44., 44.),
+        ) {
             self.cancel_gesture();
             self.help = true;
+            ui.reset_focus();
             self.revision += 1;
         }
     }
     fn setup(&mut self, ui: &mut Ui) {
-        let width = (screen_width() - 24.).min(720.);
-        let x = (screen_width() - width) * 0.5;
-        let short = screen_height() < 500.;
-        let sizes = Rect::new(x, 66., width, 52.);
-        bordered(sizes, 19., ui.theme.line, ui.theme.bg);
-        for (i, size) in Size::ALL.into_iter().enumerate() {
-            let rect = Rect::new(
-                sizes.x + 4. + i as f32 * (width - 8.) / 3.,
-                sizes.y + 4.,
-                (width - 8.) / 3.,
+        let l = SetupLayout::new(screen_width(), screen_height());
+        let narrow = landscape(screen_width(), screen_height());
+        for (i, (name, g)) in [("Endless", Glyph::Infinity), ("Pictures", Glyph::Gallery)]
+            .into_iter()
+            .enumerate()
+        {
+            let r = Rect::new(
+                l.modes.x + i as f32 * l.modes.w * 0.5,
+                l.modes.y,
+                l.modes.w * 0.5,
                 44.,
             );
-            if ui.tab(size.name(), rect, self.size == size) {
+            let active = self.endless == (i == 0);
+            let color = if active {
+                ui.theme.text
+            } else {
+                ui.theme.muted
+            };
+            let text_width = ui.text_width(name, 14., active);
+            let start = r.center().x - (text_width + 32.) * 0.5;
+            glyph(g, vec2(start + 10., r.center().y), color);
+            ui.centered(
+                name,
+                Rect::new(start + 30., r.y, text_width, r.h),
+                14.,
+                color,
+                active,
+            );
+            if active {
+                rounded(
+                    Rect::new(r.center().x - 22., r.bottom() - 3., 44., 3.),
+                    1.5,
+                    ui.theme.accent,
+                );
+            }
+            if ui.hit(r) {
+                self.endless = i == 0;
+                self.revision += 1;
+            }
+        }
+        let gap = 6.;
+        let width = (l.sizes.w - 2. * gap) / 3.;
+        for (i, size) in Size::ALL.into_iter().enumerate() {
+            let r = Rect::new(l.sizes.x + i as f32 * (width + gap), l.sizes.y, width, 48.);
+            let active = self.size == size;
+            if active {
+                bordered(
+                    r,
+                    14.,
+                    ui.theme.accent,
+                    if ui.theme.saver {
+                        BLACK
+                    } else {
+                        color_u8!(255, 244, 237, 255)
+                    },
+                );
+            } else {
+                rounded(r, 14., ui.theme.panel);
+            }
+            ui.centered(
+                size.name(),
+                r,
+                if narrow { 12. } else { 14. },
+                if active {
+                    ui.theme.text
+                } else {
+                    ui.theme.muted
+                },
+                active,
+            );
+            if ui.hit(r) {
                 self.size = size;
                 self.pending = PUZZLES.iter().position(|p| p.size() == size).unwrap_or(0);
                 self.revision += 1;
             }
         }
-        let modes = Rect::new(x, 126., width, 48.);
-        bordered(modes, 18., ui.theme.line, ui.theme.bg);
-        for (i, label) in ["Endless", "Pictures"].into_iter().enumerate() {
-            let rect = Rect::new(
-                x + 4. + i as f32 * (width - 8.) * 0.5,
-                128.,
-                (width - 8.) * 0.5,
-                44.,
-            );
-            if ui.tab(label, rect, self.endless == (i == 0)) {
-                self.endless = i == 0;
-                self.revision += 1;
-            }
-        }
         if self.endless {
-            self.endless_setup(ui, x, width);
-            return;
-        }
-        if !short {
-            ui.label(self.size.description(), x + 4., 202., 14., ui.theme.muted);
-        }
-        let top = if short { 184. } else { 218. };
-        let bottom = screen_height() - if self.save_failed { 90. } else { 72. };
-        let columns = if width >= 600. { 4 } else { 2 };
-        let rows = if columns == 4 { 1 } else { 2 };
-        let gap = 10.;
-        let card_w = (width - gap * (columns - 1) as f32) / columns as f32;
-        let card_h = ((bottom - top - gap * (rows - 1) as f32) / rows as f32)
-            .min(if short { 100. } else { 170. })
-            .max(46.);
-        let indices = PUZZLES
-            .iter()
-            .enumerate()
-            .filter_map(|(i, p)| (p.size() == self.size).then_some(i))
-            .collect::<Vec<_>>();
-        for (number, index) in indices.into_iter().enumerate() {
-            let rect = Rect::new(
-                x + (number % columns) as f32 * (card_w + gap),
-                top + (number / columns) as f32 * (card_h + gap),
-                card_w,
-                card_h,
-            );
-            let active = self.pending == index;
-            bordered(
-                rect,
-                18.,
-                if active { CORAL } else { ui.theme.line },
-                if active && !ui.theme.saver {
-                    color_u8!(255, 246, 241, 255)
-                } else {
-                    ui.theme.bg
-                },
-            );
-            let solved = self.game.completed(index);
-            let marked = self.game.marked(index);
-            let compact = card_h < 88.;
-            let icon_side = if compact {
-                (card_h - 18.).min(card_w * 0.26)
-            } else {
-                (card_h - 36.).min(card_w - 36.).max(14.)
-            };
-            let icon = Rect::new(
-                if compact {
-                    rect.x + 10.
-                } else {
-                    rect.center().x - icon_side * 0.5
-                },
-                if compact {
-                    rect.center().y - icon_side * 0.5
-                } else {
-                    rect.y + 9.
-                },
-                icon_side,
-                icon_side,
-            );
-            if solved {
-                draw_picture(
-                    icon,
-                    index,
-                    if ui.theme.saver {
-                        ui.theme.accent
-                    } else {
-                        CORAL
-                    },
-                );
-            } else {
-                let unit = icon_side / 5.;
-                for y in 0..5 {
-                    for cx in 0..5 {
-                        rounded(
-                            Rect::new(
-                                icon.x + cx as f32 * unit + 1.,
-                                icon.y + y as f32 * unit + 1.,
-                                unit - 2.,
-                                unit - 2.,
-                            ),
-                            1.5,
-                            if (cx + y) % 3 == 0 && marked > 0 {
-                                ui.theme.muted
-                            } else {
-                                ui.theme.line
-                            },
-                        );
-                    }
-                }
-            }
-            let compact_label = format!("Picture {}", number + 1);
-            ui.centered(
-                if solved {
-                    PUZZLES[index].name
-                } else if compact {
-                    &compact_label
-                } else if marked > 0 {
-                    "Continue"
-                } else {
-                    "Hidden picture"
-                },
-                if compact {
-                    Rect::new(
-                        icon.right() + 5.,
-                        rect.center().y - 11.,
-                        rect.right() - icon.right() - 8.,
-                        22.,
-                    )
-                } else {
-                    Rect::new(rect.x + 2., rect.bottom() - 30., rect.w - 4., 22.)
-                },
-                if card_w < 150. { 12. } else { 14. },
-                ui.theme.text,
-                true,
-            );
-            if !compact {
-                ui.label(
-                    &(number + 1).to_string(),
-                    rect.x + 12.,
-                    rect.y + 22.,
-                    12.,
-                    if active { CORAL } else { ui.theme.muted },
-                );
-            }
-            if ui.hit(rect) {
-                self.pending = index;
-                self.revision += 1;
-            }
-        }
-        let button = Rect::new(x, screen_height() - 60., width, 48.);
-        let label = if self.game.completed(self.pending) {
-            "View picture"
-        } else if self.game.marked(self.pending) > 0 {
-            "Continue picture"
+            self.endless_setup(ui, l.content);
         } else {
-            "Play"
-        };
-        if ui.button(label, button, true) {
+            self.pictures_setup(ui, l.content);
+        }
+        let label = self.start_label();
+        if primary_button(ui, label, l.play) {
             self.start();
             ui.reset_focus();
         }
         if self.save_failed {
             ui.centered(
                 "Progress could not be saved",
-                Rect::new(x, button.y - 27., width, 22.),
-                12.,
+                Rect::new(l.sizes.x, l.sizes.bottom() + 1., l.sizes.w, 13.),
+                10.,
                 CORAL,
                 false,
             );
         }
     }
-    fn endless_setup(&mut self, ui: &mut Ui, x: f32, width: f32) {
+    fn start_label(&self) -> &'static str {
+        let index = if self.endless {
+            Game::endless_index(self.size)
+        } else {
+            self.pending
+        };
+        if self.game.completed(index) {
+            if self.endless {
+                "Next puzzle"
+            } else {
+                "View picture"
+            }
+        } else if self.game.marked(index) > 0 {
+            "Continue"
+        } else {
+            "Start puzzle"
+        }
+    }
+    fn endless_setup(&mut self, ui: &mut Ui, area: Rect) {
         let index = Game::endless_index(self.size);
         let number = self.game.endless_number(self.size).unwrap_or(1);
-        let bottom = screen_height() - if self.save_failed { 94. } else { 76. };
-        let panel = Rect::new(x, 186., width, (bottom - 186.).clamp(52., 240.));
-        bordered(panel, 22., ui.theme.line, ui.theme.bg);
-        let compact = panel.h < 140.;
-        let accent = if ui.theme.saver {
-            ui.theme.accent
+        let marked = self.game.marked(index);
+        let compact = area.h < 175.;
+        let board_side = if compact {
+            (area.h - 12.).min(area.w * 0.39)
         } else {
-            CORAL
+            (area.h - 92.).min(area.w - 40.).min(330.)
         };
-        let symbol = if compact {
-            Rect::new(panel.x + 10., panel.y, 66., panel.h)
-        } else {
-            Rect::new(panel.x, panel.y + 6., panel.w, panel.h * 0.56)
-        };
-        ui.centered("∞", symbol, if compact { 40. } else { 70. }, accent, true);
-        let title = format!("Puzzle {number}");
-        let text = if compact {
+        let image = if compact {
             Rect::new(
-                panel.x + 78.,
-                panel.y + (panel.h - 50.) * 0.5,
-                panel.w - 88.,
-                25.,
+                area.x + 4.,
+                area.center().y - board_side * 0.5,
+                board_side,
+                board_side,
             )
         } else {
-            Rect::new(panel.x, panel.y + panel.h * 0.57, panel.w, 30.)
+            Rect::new(
+                area.center().x - board_side * 0.5,
+                area.center().y - (board_side + 80.) * 0.5,
+                board_side,
+                board_side,
+            )
         };
-        ui.centered(&title, text, 19., ui.theme.text, true);
-        let status = if self.game.completed(index) {
-            "Complete · ready for the next?"
-        } else if self.game.marked(index) > 0 {
-            "Your progress is saved"
+        let saved = self.game.cells_for(index).filter(|_| marked > 0);
+        mosaic(ui, image, saved, true);
+        let text = if compact {
+            Rect::new(
+                image.right() + 18.,
+                area.center().y - 32.,
+                area.right() - image.right() - 22.,
+                32.,
+            )
         } else {
-            "New puzzles, no limit"
+            Rect::new(area.x, image.bottom() + 16., area.w, 32.)
+        };
+        let title = if marked > 0 || self.game.completed(index) {
+            format!("Puzzle {number:02}")
+        } else {
+            "Endless".into()
+        };
+        ui.centered(
+            &title,
+            text,
+            if compact { 20. } else { 28. },
+            ui.theme.text,
+            true,
+        );
+        let status = if self.game.completed(index) {
+            "Solved. One more?"
+        } else if marked > 0 {
+            "Pick up where you left off"
+        } else {
+            "A new puzzle, every time"
         };
         ui.centered(
             status,
-            Rect::new(text.x, text.bottom(), text.w, 22.),
+            Rect::new(text.x, text.bottom() + 5., text.w, 22.),
             if compact { 11. } else { 13. },
             ui.theme.muted,
             false,
         );
-        let button = Rect::new(x, screen_height() - 60., width, 48.);
-        let label = if self.game.completed(index) {
-            "Next puzzle"
-        } else if self.game.marked(index) > 0 {
-            "Continue puzzle"
-        } else {
-            "Play"
-        };
-        if ui.button(label, button, true) {
-            self.start();
-            ui.reset_focus();
-        }
-        if self.save_failed {
-            ui.centered(
-                "Progress could not be saved",
-                Rect::new(x, button.y - 27., width, 22.),
-                12.,
-                CORAL,
-                false,
+    }
+    fn pictures_setup(&mut self, ui: &mut Ui, area: Rect) {
+        let columns = if area.w >= 680. { 4 } else { 2 };
+        let rows = 4 / columns;
+        let gap = if area.h < 120. { 6. } else { 12. };
+        let w = (area.w - gap * (columns - 1) as f32) / columns as f32;
+        let h = ((area.h - gap * (rows - 1) as f32) / rows as f32).min(228.);
+        let top = area.y + (area.h - (h * rows as f32 + gap * (rows - 1) as f32)) * 0.5;
+        let indices: Vec<_> = PUZZLES
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| (p.size() == self.size).then_some(i))
+            .collect();
+        for (number, index) in indices.into_iter().enumerate() {
+            let r = Rect::new(
+                area.x + (number % columns) as f32 * (w + gap),
+                top + (number / columns) as f32 * (h + gap),
+                w,
+                h,
             );
+            let active = self.pending == index;
+            let solved = self.game.completed(index);
+            let marked = self.game.marked(index);
+            bordered(
+                r,
+                16.,
+                if active {
+                    ui.theme.accent
+                } else {
+                    ui.theme.line
+                },
+                ui.theme.bg,
+            );
+            let compact = h < 100.;
+            let side = if compact {
+                (h - 16.).min(w * 0.25)
+            } else {
+                (h - if solved || marked > 0 { 76. } else { 56. }).min(w - 44.)
+            };
+            let image = if compact {
+                Rect::new(r.x + 10., r.center().y - side * 0.5, side, side)
+            } else {
+                Rect::new(r.center().x - side * 0.5, r.y + 14., side, side)
+            };
+            if solved {
+                draw_picture(image, index, ui.theme.accent);
+            } else {
+                mosaic(
+                    ui,
+                    image,
+                    self.game.cells_for(index).filter(|_| marked > 0),
+                    false,
+                );
+            }
+            let label = if solved {
+                PUZZLES[index].name.into()
+            } else {
+                format!("{:02}", number + 1)
+            };
+            let text = if compact {
+                Rect::new(
+                    image.right() + 6.,
+                    r.center().y - 12.,
+                    r.right() - image.right() - 12.,
+                    24.,
+                )
+            } else {
+                Rect::new(r.x + 8., image.bottom() + 12., r.w - 16., 24.)
+            };
+            ui.centered(
+                &label,
+                text,
+                if compact { 13. } else { 16. },
+                ui.theme.text,
+                true,
+            );
+            if !compact && (solved || marked > 0) {
+                ui.centered(
+                    if solved {
+                        "Solved"
+                    } else if marked > 0 {
+                        "In progress"
+                    } else {
+                        "Uncover it"
+                    },
+                    Rect::new(text.x, text.bottom(), text.w, 20.),
+                    11.,
+                    ui.theme.muted,
+                    false,
+                );
+            }
+            if ui.hit(r) {
+                self.pending = index;
+                self.revision += 1;
+            }
         }
     }
     fn controls(&mut self, ui: &mut Ui, l: &BoardGeometry) -> Option<Pulse> {
-        let landscape = screen_width() >= 540. && screen_height() < 500.;
-        let area = if landscape {
-            Rect::new(10., 60., 186., 42.)
-        } else {
-            Rect::new(
-                (screen_width() - (screen_width() - 20.).min(560.)) * 0.5,
-                56.,
-                (screen_width() - 20.).min(560.),
-                42.,
-            )
-        };
-        let width = (area.w - 12.) / 3.;
+        let narrow = landscape(screen_width(), screen_height());
+        let rects = layout::action_rects(screen_width(), screen_height());
         let mut pulse = None;
-        for (i, label) in ["Undo", "Hint", "Reset"].into_iter().enumerate() {
-            if ui.button(
-                label,
-                Rect::new(area.x + i as f32 * (width + 6.), area.y, width, area.h),
-                false,
-            ) {
+        for (i, g) in [Glyph::Undo, Glyph::Hint, Glyph::Reset]
+            .into_iter()
+            .enumerate()
+        {
+            if icon_button(ui, g, rects[i]) {
                 self.cancel_gesture();
                 match i {
                     0 => {
@@ -633,24 +915,19 @@ impl NonogramsPage {
                     }
                     _ => {
                         self.reset_confirm = true;
+                        ui.reset_focus();
                         self.revision += 1;
                     }
                 }
             }
         }
-        let zoom = if landscape {
-            Rect::new(10., 112., 186., 44.)
-        } else {
-            Rect::new(
-                (screen_width() - 186.) * 0.5,
-                screen_height() - 112.,
-                186.,
-                44.,
-            )
-        };
-        let decrease = ui.button("−", Rect::new(zoom.x, zoom.y, 48., 44.), false);
-        let fit = ui.button("Fit", Rect::new(zoom.x + 54., zoom.y, 78., 44.), false);
-        let increase = ui.button("+", Rect::new(zoom.x + 138., zoom.y, 48., 44.), false);
+        if !narrow && screen_width() > 330. {
+            let x = (rects[2].right() + rects[3].x) * 0.5;
+            draw_line(x, 72., x, 88., 1., ui.theme.line);
+        }
+        let decrease = icon_button(ui, Glyph::Minus, rects[3]);
+        let fit = icon_button(ui, Glyph::Fit, rects[4]);
+        let increase = icon_button(ui, Glyph::Plus, rects[5]);
         if decrease || increase || is_key_pressed(KeyCode::Minus) || is_key_pressed(KeyCode::Equal)
         {
             self.cancel_gesture();
@@ -670,38 +947,30 @@ impl NonogramsPage {
             self.cancel_gesture();
             self.pan.fit(l.viewport, l.base);
         }
-        let tools = if landscape {
-            Rect::new(10., screen_height() - 60., 186., 48.)
+        let width = if narrow {
+            144.
         } else {
-            Rect::new(
-                (screen_width() - (screen_width() - 20.).min(560.)) * 0.5,
-                screen_height() - 60.,
-                (screen_width() - 20.).min(560.),
-                48.,
-            )
+            (screen_width() - 24.).min(280.)
         };
+        let tools = Rect::new(
+            if narrow {
+                16.
+            } else {
+                (screen_width() - width) * 0.5
+            },
+            screen_height() - 64.,
+            width,
+            52.,
+        );
         if self.game.won() {
-            if landscape {
-                ui.centered(
-                    if self.game.is_endless() {
-                        "Puzzle solved!"
-                    } else {
-                        "Picture revealed!"
-                    },
-                    Rect::new(10., 170., 186., 32.),
-                    15.,
-                    ui.theme.accent,
-                    true,
-                );
-            }
-            if ui.button(
+            if primary_button(
+                ui,
                 if self.game.is_endless() {
                     "Next puzzle"
                 } else {
                     "Next picture"
                 },
                 tools,
-                true,
             ) {
                 if self.game.is_endless() {
                     self.start();
@@ -716,73 +985,49 @@ impl NonogramsPage {
                 self.revision += 1;
             }
         } else {
-            bordered(tools, 17., ui.theme.line, ui.theme.bg);
+            rounded(tools, 18., ui.theme.panel);
+            if ui.theme.saver {
+                bordered(tools, 18., ui.theme.line, BLACK);
+            }
             for (i, tool) in [Tool::Fill, Tool::Cross, Tool::Move]
                 .into_iter()
                 .enumerate()
             {
-                let rect = Rect::new(
+                let r = Rect::new(
                     tools.x + 4. + i as f32 * (tools.w - 8.) / 3.,
                     tools.y + 4.,
                     (tools.w - 8.) / 3.,
-                    tools.h - 8.,
+                    44.,
                 );
-                if self.tool == tool {
-                    bordered(
-                        rect,
-                        13.,
-                        if ui.theme.saver {
-                            ui.theme.accent
-                        } else {
-                            CORAL
-                        },
-                        if ui.theme.saver {
-                            BLACK
-                        } else {
-                            color_u8!(255, 240, 232, 255)
-                        },
-                    );
+                let active = self.tool == tool;
+                if active {
+                    rounded(r, 14., ui.theme.text);
                 }
-                let color = if self.tool == tool {
-                    if ui.theme.saver {
-                        ui.theme.accent
-                    } else {
-                        CORAL
-                    }
+                let color = if active {
+                    if ui.theme.saver { BLACK } else { WHITE }
                 } else {
                     ui.theme.muted
                 };
-                let icon = vec2(
-                    rect.x + if landscape { 13. } else { rect.w * 0.21 },
-                    rect.center().y,
-                );
-                draw_tool(tool, icon, 12., color);
-                ui.centered(
-                    tool.label(),
-                    Rect::new(
-                        rect.x + if landscape { 20. } else { rect.w * 0.3 },
-                        rect.y,
-                        rect.w * if landscape { 0.65 } else { 0.66 },
-                        rect.h,
-                    ),
-                    if landscape { 11. } else { 14. },
+                draw_tool(
+                    tool,
+                    vec2(r.center().x, r.center().y - if active { 5. } else { 0. }),
+                    23.,
                     color,
-                    true,
                 );
-                if ui.hit(rect) {
+                if active {
+                    ui.centered(
+                        tool.label(),
+                        Rect::new(r.x, r.bottom() - 17., r.w, 14.),
+                        10.,
+                        color,
+                        true,
+                    );
+                }
+                if ui.hit(r) {
                     self.cancel_gesture();
                     self.tool = tool;
                     self.revision += 1;
                 }
-            }
-            if landscape {
-                ui.centered(
-                    "Drag to paint",
-                    Rect::new(10., 174., 186., 24.),
-                    12.,
-                    ui.theme.muted,
-                    false,
-                );
             }
         }
         pulse
@@ -1023,6 +1268,7 @@ impl NonogramsPage {
         pulse
     }
     pub fn draw(&mut self, ui: &mut Ui, press: Option<Vec2>) -> Option<Pulse> {
+        ui.theme = puzzle_theme(ui.theme.saver);
         self.drawn_revision = self.revision;
         if self.help || self.reset_confirm {
             return self.modal(ui);
@@ -1053,17 +1299,6 @@ impl NonogramsPage {
         if self.help || self.reset_confirm {
             return self.modal(ui).or(pulse);
         }
-        bordered(
-            Rect::new(
-                l.viewport.x - 3.,
-                l.viewport.y - 3.,
-                l.viewport.w + 6.,
-                l.viewport.h + 6.,
-            ),
-            14.,
-            ui.theme.line,
-            ui.theme.bg,
-        );
         let dpi = screen_dpi_scale();
         // SAFETY: keep clipping synchronous and isolated to this board draw.
         unsafe {
@@ -1106,12 +1341,51 @@ impl NonogramsPage {
                 rounded(bar, 1., ui.theme.muted);
             }
         }
+        self.control_hint(ui);
         pulse
+    }
+    fn control_hint(&self, ui: &Ui) {
+        for (i, (r, name)) in layout::action_rects(screen_width(), screen_height())
+            .into_iter()
+            .zip(["Undo", "Hint", "Reset", "Zoom out", "Fit board", "Zoom in"])
+            .enumerate()
+        {
+            if ui.focused_item() == Some(i + 2) {
+                let width = ui.text_width(name, 12., true) + 20.;
+                let rect = Rect::new(
+                    (r.center().x - width * 0.5).clamp(8., screen_width() - width - 8.),
+                    r.bottom() + 3.,
+                    width,
+                    24.,
+                );
+                if ui.theme.saver {
+                    bordered(rect, 8., ui.theme.accent, BLACK);
+                } else {
+                    rounded(rect, 8., ui.theme.text);
+                }
+                ui.centered(
+                    name,
+                    rect,
+                    12.,
+                    if ui.theme.saver {
+                        ui.theme.accent
+                    } else {
+                        WHITE
+                    },
+                    true,
+                );
+                break;
+            }
+        }
     }
     fn modal(&mut self, ui: &mut Ui) -> Option<Pulse> {
         let width = (screen_width() - 24.).min(460.);
         let x = (screen_width() - width) * 0.5;
-        let height = if self.help { 282. } else { 198. };
+        let height = if self.help {
+            (screen_height() - 24.).min(338.)
+        } else {
+            198.
+        };
         let top = (screen_height() - height) * 0.5;
         bordered(
             Rect::new(x, top, width, height),
@@ -1121,7 +1395,7 @@ impl NonogramsPage {
         );
         ui.centered(
             if self.help {
-                "Find the hidden picture"
+                "How to play"
             } else {
                 "Clear this picture?"
             },
@@ -1131,29 +1405,93 @@ impl NonogramsPage {
             true,
         );
         if self.help {
-            for (i, line) in [
-                "Numbers are runs of filled squares.",
-                "Leave a gap between each run.",
-                "Cross the squares you leave empty.",
-                "Drag to paint; Move to scroll.",
-                "Pinch or use + / − to zoom.",
-                "Undo and hints are always here.",
-            ]
-            .into_iter()
-            .enumerate()
+            let unit = ((width - 90.) / 5.).min(32.);
+            let grid = Rect::new(
+                x + (width - unit * 5.) * 0.5 + 16.,
+                top + 60.,
+                unit * 5.,
+                unit,
+            );
+            ui.centered(
+                "2 1",
+                Rect::new(grid.x - 42., grid.y, 36., unit),
+                16.,
+                ui.theme.text,
+                true,
+            );
+            for i in 0..5 {
+                let r = Rect::new(
+                    grid.x + i as f32 * unit + 1.,
+                    grid.y + 1.,
+                    unit - 2.,
+                    unit - 2.,
+                );
+                rounded(
+                    r,
+                    3.,
+                    if [0, 1, 3].contains(&i) {
+                        ui.theme.text
+                    } else {
+                        ui.theme.panel
+                    },
+                );
+                if i == 4 {
+                    draw_tool(Tool::Cross, r.center(), 16., ui.theme.muted);
+                }
+            }
+            ui.centered(
+                "Filled runs, with a gap between them",
+                Rect::new(x + 10., grid.bottom() + 8., width - 20., 20.),
+                if width < 300. { 11. } else { 13. },
+                ui.theme.muted,
+                false,
+            );
+            let row_top = grid.bottom() + 39.;
+            for (i, tool) in [Tool::Fill, Tool::Cross, Tool::Move]
+                .into_iter()
+                .enumerate()
             {
+                let center = vec2(x + width * (i as f32 + 0.5) / 3., row_top + 10.);
+                draw_tool(tool, center, 22., ui.theme.text);
                 ui.centered(
-                    line,
-                    Rect::new(x + 10., top + 58. + i as f32 * 26., width - 20., 22.),
-                    if width < 300. { 12. } else { 14. },
+                    tool.label(),
+                    Rect::new(center.x - 40., center.y + 14., 80., 18.),
+                    12.,
                     ui.theme.muted,
                     false,
                 );
             }
-            if ui.button(
+            for (i, (g, name)) in [
+                (Glyph::Undo, "Undo"),
+                (Glyph::Hint, "Hint"),
+                (Glyph::Reset, "Reset"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let center = vec2(x + width * (i as f32 + 0.5) / 3., row_top + 67.);
+                glyph(g, center, ui.theme.text);
+                ui.centered(
+                    name,
+                    Rect::new(center.x - 40., center.y + 14., 80., 18.),
+                    12.,
+                    ui.theme.muted,
+                    false,
+                );
+            }
+            if height > 320. {
+                ui.centered(
+                    "Pinch to zoom · corners icon to fit",
+                    Rect::new(x + 10., top + height - 90., width - 20., 20.),
+                    if width < 300. { 11. } else { 12. },
+                    ui.theme.muted,
+                    false,
+                );
+            }
+            if primary_button(
+                ui,
                 "Got it",
                 Rect::new(x + 16., top + height - 62., width - 32., 46.),
-                true,
             ) {
                 self.help = false;
                 self.revision += 1;
@@ -1175,10 +1513,10 @@ impl NonogramsPage {
                 self.reset_confirm = false;
                 self.revision += 1;
             }
-            if ui.button(
+            if primary_button(
+                ui,
                 "Clear",
                 Rect::new(x + 26. + w, top + height - 62., w, 46.),
-                true,
             ) {
                 self.reset_confirm = false;
                 if self.game.reset() {
@@ -1242,7 +1580,8 @@ fn draw_board(
 ) {
     let side = game.side();
     let unit = grid.w / side as f32;
-    let fill = if theme.saver { theme.accent } else { CORAL };
+    let fill = if game.won() { theme.accent } else { theme.text };
+    draw_rectangle(grid.x, grid.y, grid.w, grid.h, theme.panel);
     for (i, cell) in game.cells().iter().enumerate() {
         let rect = Rect::new(
             grid.x + (i % side) as f32 * unit,
@@ -1347,7 +1686,7 @@ fn draw_board(
                     unit,
                     unit * 0.65,
                 ),
-                unit * 0.48,
+                (unit * 0.48).min(20.),
                 color,
                 false,
             );
@@ -1361,7 +1700,7 @@ fn draw_board(
                     unit,
                     unit * 0.65,
                 ),
-                unit * 0.48,
+                (unit * 0.48).min(20.),
                 color,
                 true,
             );
@@ -1385,7 +1724,7 @@ fn draw_board(
                     unit * 0.65,
                     unit,
                 ),
-                unit * 0.48,
+                (unit * 0.48).min(20.),
                 color,
                 false,
             );
@@ -1399,7 +1738,7 @@ fn draw_board(
                     unit * 0.61,
                     unit,
                 ),
-                unit * 0.48,
+                (unit * 0.48).min(20.),
                 color,
                 true,
             );
@@ -1449,7 +1788,7 @@ pub fn preview(ui: &Ui, rect: Rect) {
         grid_size,
         grid_size,
     );
-    draw_board(ui, game, grid, None, &ui.theme, None);
+    draw_board(ui, game, grid, None, &puzzle_theme(ui.theme.saver), None);
 }
 
 /// Paint cells crossed by a fast pointer, including both endpoints.
