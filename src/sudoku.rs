@@ -363,6 +363,17 @@ impl Game {
             .map(|(&g, m)| if g > 0 { g } else { m.value })
             .collect()
     }
+    /// Visible givens and player digits only; never solution cells or pencil notes.
+    pub fn revealed_cells(&self, number: u8) -> Vec<usize> {
+        if !(1..=9).contains(&number) {
+            return Vec::new();
+        }
+        self.values()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &v)| (v == number).then_some(i))
+            .collect()
+    }
     pub fn filled(&self) -> usize {
         self.values().iter().filter(|&&d| d > 0).count()
     }
@@ -767,6 +778,49 @@ mod tests {
         assert!(Game::restore(&json.to_string()).is_none());
         assert!(Game::restore("{}").is_none());
         assert!(Game::restore(&"x".repeat(300_000)).is_none());
+    }
+    #[test]
+    fn revealed_digit_search_includes_visible_entries_but_never_hidden_digits_or_notes() {
+        let mut g = game();
+        let cells: Vec<_> = (0..81).filter(|&i| g.puzzle.givens[i] == 0).collect();
+        let hidden = *cells.iter().find(|&&i| g.puzzle.solution[i] == 1).unwrap();
+        let wrong = *cells.iter().find(|&&i| g.puzzle.solution[i] != 1).unwrap();
+        g.enter(&[hidden], 1, Tool::Corner);
+        g.enter(&[hidden], 1, Tool::Centre);
+        g.enter(&[wrong], 1, Tool::Digit);
+        let matches = g.revealed_cells(1);
+        assert!(matches.contains(&wrong));
+        assert!(!matches.contains(&hidden));
+        assert_eq!(
+            matches,
+            (0..81)
+                .filter(|&i| g.puzzle.givens[i] == 1 || i == wrong)
+                .collect::<Vec<_>>()
+        );
+        g.enter(&[hidden], 1, Tool::Digit);
+        assert!(g.revealed_cells(1).contains(&hidden));
+        assert!(g.revealed_cells(0).is_empty());
+        assert!(g.revealed_cells(10).is_empty());
+    }
+    #[test]
+    fn mistake_feedback_tracks_correction_undo_redo_and_restore_in_every_variant() {
+        for v in Variant::ALL {
+            let mut g = Game::new(Generator::new(31, v, Difficulty::Medium).finish());
+            let i = g.puzzle.givens.iter().position(|&v| v == 0).unwrap();
+            let correct = g.puzzle.solution[i];
+            g.enter(&[i], correct % 9 + 1, Tool::Corner);
+            assert!(g.mistakes().is_empty());
+            g.enter(&[i], correct % 9 + 1, Tool::Digit);
+            assert_eq!(g.mistakes(), vec![i]);
+            let mut restored = Game::restore(&g.encode()).unwrap();
+            assert_eq!(restored.mistakes(), vec![i]);
+            restored.enter(&[i], correct, Tool::Digit);
+            assert!(restored.mistakes().is_empty());
+            restored.undo();
+            assert_eq!(restored.mistakes(), vec![i]);
+            restored.redo();
+            assert!(restored.mistakes().is_empty());
+        }
     }
     #[test]
     fn full_history_fits_storage_buffer_and_remains_undoable_after_reload() {

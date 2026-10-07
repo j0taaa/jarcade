@@ -105,6 +105,7 @@ pub struct SudokuPage {
     save_failed: bool,
     message: String,
     mistakes: Vec<usize>,
+    highlighted_digit: Option<u8>,
     pan: BoardPan,
     pinch: PinchZoom,
     touch_id: Option<u64>,
@@ -131,13 +132,14 @@ impl SudokuPage {
                 .map(|v| Generator::new(42, v, Difficulty::Easy).finish())
                 .into(),
             generator: None,
-            selected: vec![0],
+            selected: Vec::new(),
             modal: Modal::None,
             dirty: false,
             home: false,
             save_failed: false,
             message: String::new(),
             mistakes: Vec::new(),
+            highlighted_digit: None,
             pan: BoardPan::default(),
             pinch: PinchZoom::default(),
             touch_id: None,
@@ -195,13 +197,39 @@ impl SudokuPage {
     fn changed(&mut self) -> Option<Pulse> {
         self.dirty = true;
         self.revision += 1;
-        self.mistakes.clear();
-        self.message.clear();
+        self.refresh_mistakes();
         Some(if self.game.as_ref().is_some_and(Game::won) {
             Pulse::Won
         } else {
             Pulse::Tap
         })
+    }
+    fn mistake_message(&self) -> String {
+        if self.mistakes.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "{} incorrect digit{}. Highlighted in red.",
+                self.mistakes.len(),
+                if self.mistakes.len() == 1 { "" } else { "s" }
+            )
+        }
+    }
+    fn refresh_mistakes(&mut self) {
+        self.mistakes = self.game.as_ref().map_or_else(Vec::new, Game::mistakes);
+        self.message = self.mistake_message();
+    }
+    fn clear_selection(&mut self) {
+        self.cancel_gesture();
+        self.selected.clear();
+        self.highlighted_digit = None;
+        self.message = self.mistake_message();
+        self.revision += 1;
+    }
+    fn clear_digit_highlight(&mut self) {
+        if self.highlighted_digit.take().is_some() {
+            self.message = self.mistake_message();
+        }
     }
     fn start(&mut self) {
         self.cancel_gesture();
@@ -211,17 +239,17 @@ impl SudokuPage {
     fn resume(&mut self) {
         self.configuring = false;
         self.tool = Tool::Digit;
-        self.selected = vec![0];
+        self.selected.clear();
+        self.highlighted_digit = None;
         self.pan = BoardPan::default();
         self.viewport = Vec2::ZERO;
-        self.message.clear();
-        self.mistakes.clear();
+        self.refresh_mistakes();
         self.revision += 1;
     }
     pub fn preview(&self, ui: &Ui, r: Rect) {
         let p = self.game.as_ref().map_or(&self.samples[0], |g| &g.puzzle);
         let marks = self.game.as_ref().map_or(&[][..], |g| g.marks.as_slice());
-        art::draw_board(ui, p, marks, &[], &[], r, true);
+        art::draw_board(ui, p, marks, art::Highlights::default(), r, true);
     }
     fn focused_label(&self, i: usize) -> Option<String> {
         if self.modal == Modal::Help {
@@ -268,7 +296,7 @@ impl SudokuPage {
     pub fn announcement(&self, focus: Option<usize>) -> String {
         let mut s = if self.modal == Modal::Help {
             format!(
-                "Jarcade. Sudoku. Rules. {} Space cycles Digit, Corner, Centre and Colour. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
+                "Jarcade. Sudoku. Rules. {} Space cycles Digit, Corner, Centre and Colour. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
                 self.variant.rules().join(" ")
             )
         } else if self.modal == Modal::Reset {
@@ -298,17 +326,38 @@ impl SudokuPage {
                 g.puzzle.difficulty.name(),
                 self.tool.name(),
                 g.filled(),
-                self.selected
-                    .iter()
-                    .map(|i| format!("r{}c{}", i / 9 + 1, i % 9 + 1))
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                if self.selected.is_empty() {
+                    "none".into()
+                } else {
+                    self.selected
+                        .iter()
+                        .map(|i| format!("r{}c{}", i / 9 + 1, i % 9 + 1))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                },
                 if g.won() { "Puzzle complete." } else { "" },
                 self.message
             )
         } else {
             "Jarcade. Sudoku.".into()
         };
+        if !self.configuring
+            && self.modal == Modal::None
+            && self.generator.is_none()
+            && let Some(n) = self.highlighted_digit
+            && let Some(g) = &self.game
+        {
+            let cells = g
+                .revealed_cells(n)
+                .iter()
+                .map(|i| format!("r{}c{}", i / 9 + 1, i % 9 + 1))
+                .collect::<Vec<_>>()
+                .join(", ");
+            s.push_str(&format!(
+                " Highlighted digit {n}: {}.",
+                if cells.is_empty() { "none" } else { &cells }
+            ));
+        }
         if let Some(label) = focus.and_then(|i| self.focused_label(i)) {
             s.push_str(&format!(" Focused control: {label}. Enter to activate."));
         }
@@ -402,7 +451,7 @@ impl SudokuPage {
             } else {
                 Rect::new(r.center().x - size / 2., r.y + 10., size, size)
             };
-            art::draw_board(ui, p, &[], &[], &[], preview, true);
+            art::draw_board(ui, p, &[], art::Highlights::default(), preview, true);
             let title = if compact {
                 Rect::new(r.x + size + 16., r.y, r.w - size - 22., r.h)
             } else {
@@ -548,7 +597,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "1–9: digit. Space: next tool. Z / X / C / V: digit / corner / centre / colour. Shift: corner; Ctrl: centre. Drag selects cells. Ctrl + Z / Y: undo / redo. Pinch or scroll: zoom. Check finds mistakes; Hint explains a forced digit.",
+                    "1–9: digit. Space: next tool. Z / X / C / V: digit / corner / centre / colour. Shift: corner; Ctrl: centre. Drag selects cells. Ctrl + Z / Y: undo / redo. Pinch or scroll: zoom. Wrong digits turn red immediately. Tap outside or Ctrl+Shift+A to deselect. With none selected, 1–9 highlights visible digits.",
                     Rect::new(r.x + 44. + col, r.y + 62., col, h - 132.),
                     12.,
                     ui.theme.muted,
@@ -570,7 +619,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "Pinch or scroll to zoom. Drag to pan when zoomed. Check highlights incorrect digits; Hint explains the next forced digit.",
+                    "Pinch or scroll to zoom. Drag to pan when zoomed. Wrong digits turn red immediately. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights matching digits.",
                     Rect::new(r.x + 22., r.y + 278., w - 44., 70.),
                     12.,
                     ui.theme.muted,
@@ -630,6 +679,27 @@ impl SudokuPage {
         None
     }
     fn enter_number(&mut self, d: u8, tool: Tool) -> Option<Pulse> {
+        if self.selected.is_empty() {
+            if !(1..=9).contains(&d) {
+                return None;
+            }
+            self.highlighted_digit = if self.highlighted_digit == Some(d) {
+                None
+            } else {
+                Some(d)
+            };
+            self.message = self.highlighted_digit.map_or_else(
+                || self.mistake_message(),
+                |n| {
+                    format!(
+                        "Showing {n} · {} revealed cells",
+                        self.game.as_ref().map_or(0, |g| g.revealed_cells(n).len())
+                    )
+                },
+            );
+            self.revision += 1;
+            return Some(Pulse::Tap);
+        }
         if self
             .game
             .as_mut()
@@ -670,6 +740,7 @@ impl SudokuPage {
             }
             3 => {
                 if let Some((cell, message)) = self.game.as_mut()?.hint() {
+                    self.clear_digit_highlight();
                     self.selected = vec![cell];
                     self.dirty = true;
                     self.message = message;
@@ -703,15 +774,26 @@ impl SudokuPage {
         let mut pulse = None;
         for d in 1..=9 {
             let r = l.number(d);
-            let hit = button(ui, r, false);
-            if self.tool == Tool::Colour {
+            let active = self.highlighted_digit == Some(d as u8);
+            let hit = button(ui, r, active);
+            if self.tool == Tool::Colour && !self.selected.is_empty() {
                 rounded(
                     Rect::new(r.x + 7., r.y + 7., r.w - 14., r.h - 14.),
                     8.,
                     art::colour(d as u8, ui.theme.saver),
                 );
             } else {
-                ui.centered(&d.to_string(), r, 24., ui.theme.accent, true);
+                ui.centered(
+                    &d.to_string(),
+                    r,
+                    24.,
+                    if active && !ui.theme.saver {
+                        WHITE
+                    } else {
+                        ui.theme.accent
+                    },
+                    true,
+                );
             }
             if hit {
                 pulse = self.enter_number(d as u8, self.tool).or(pulse);
@@ -782,6 +864,8 @@ impl SudokuPage {
         } else {
             let message = if self.save_failed {
                 "Could not save on this device."
+            } else if self.message.is_empty() && self.selected.is_empty() {
+                "Tap a cell, or a digit to highlight matches."
             } else if self.message.is_empty() {
                 self.tool.name()
             } else {
@@ -796,6 +880,7 @@ impl SudokuPage {
             .pan
             .cell_at(p, l.board, 9, 9, l.board.w * self.pan.zoom / 9.)
         {
+            self.clear_digit_highlight();
             if !add {
                 self.selected.clear();
             }
@@ -852,8 +937,13 @@ impl SudokuPage {
                 continue;
             }
             if command && key == KeyCode::A {
-                self.selected = (0..81).collect();
-                self.revision += 1;
+                if mods.shift {
+                    self.clear_selection();
+                } else {
+                    self.clear_digit_highlight();
+                    self.selected = (0..81).collect();
+                    self.revision += 1;
+                }
                 continue;
             }
             if !command
@@ -918,10 +1008,12 @@ impl SudokuPage {
                 KeyCode::Down => Some((0, 1)),
                 _ => None,
             } {
+                self.clear_digit_highlight();
+                let empty = self.selected.is_empty();
                 let i = *self.selected.last().unwrap_or(&0);
                 let x = (i as i32 % 9 + dx).rem_euclid(9);
                 let y = (i as i32 / 9 + dy).rem_euclid(9);
-                let next = (y * 9 + x) as usize;
+                let next = if empty { 0 } else { (y * 9 + x) as usize };
                 if !mods.shift && !command {
                     self.selected.clear();
                 }
@@ -955,6 +1047,10 @@ impl SudokuPage {
             self.mouse_active = false;
             self.revision += 1;
             return pulse;
+        }
+        if press.is_some_and(|p| !l.board.contains(p)) && !ui.activated {
+            self.clear_selection();
+            ui.reset_focus();
         }
         if !touches.is_empty() {
             if self.touch_id.is_none()
@@ -1158,13 +1254,88 @@ impl SudokuPage {
                 ui,
                 &g.puzzle,
                 &g.marks,
-                &self.selected,
-                &self.mistakes,
+                art::Highlights {
+                    selected: &self.selected,
+                    mistakes: &self.mistakes,
+                    matches: &self
+                        .highlighted_digit
+                        .map_or_else(Vec::new, |n| g.revealed_cells(n)),
+                },
                 grid,
                 false,
             );
         }
         crate::online_view::clip(None);
         pulse
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn page() -> SudokuPage {
+        let mut page = SudokuPage::new(Some(Game::new(
+            Generator::new(12, Variant::Classic, Difficulty::Medium).finish(),
+        )));
+        page.resume();
+        page
+    }
+    #[test]
+    fn no_selection_numbers_highlight_without_editing_progress_or_undo_history() {
+        let mut page = page();
+        assert!(page.selected.is_empty());
+        let before = page.game.as_ref().unwrap().encode();
+        for tool in Tool::ALL {
+            page.enter_number(3, tool);
+            assert_eq!(page.highlighted_digit, Some(3));
+            assert!(page.selected.is_empty());
+            assert!(page.announcement(None).contains("Highlighted digit 3:"));
+            assert!(!page.dirty);
+            assert_eq!(page.game.as_ref().unwrap().encode(), before);
+            page.enter_number(3, tool);
+            assert_eq!(page.highlighted_digit, None);
+        }
+        assert!(!page.game.as_mut().unwrap().undo());
+    }
+    #[test]
+    fn wrong_digits_warn_immediately_and_undo_and_resume_refresh_feedback() {
+        let mut page = page();
+        let g = page.game.as_ref().unwrap();
+        let i = g.puzzle.givens.iter().position(|&v| v == 0).unwrap();
+        let correct = g.puzzle.solution[i];
+        page.selected = vec![i];
+        page.enter_number(correct % 9 + 1, Tool::Digit);
+        assert_eq!(page.mistakes, vec![i]);
+        assert!(page.message.contains("incorrect digit"));
+        assert!(page.announcement(None).contains("incorrect digit"));
+        page.game.as_mut().unwrap().undo();
+        page.changed();
+        assert!(page.mistakes.is_empty());
+        assert!(page.message.is_empty());
+        page.game.as_mut().unwrap().redo();
+        page.changed();
+        assert_eq!(page.mistakes, vec![i]);
+        page.resume();
+        assert!(page.selected.is_empty());
+        assert_eq!(page.mistakes, vec![i]);
+        page.selected = vec![i];
+        page.enter_number(correct, Tool::Digit);
+        assert!(page.mistakes.is_empty());
+        assert!(page.message.is_empty());
+    }
+    #[test]
+    fn deselect_clears_digit_highlighting_without_changing_progress() {
+        let mut page = page();
+        let before = page.game.as_ref().unwrap().encode();
+        page.selected = vec![4, 5, 6];
+        page.clear_selection();
+        assert!(page.selected.is_empty());
+        page.enter_number(1, Tool::Digit);
+        assert_eq!(page.highlighted_digit, Some(1));
+        page.clear_selection();
+        assert_eq!(page.highlighted_digit, None);
+        assert!(page.selected.is_empty());
+        assert_eq!(page.game.as_ref().unwrap().encode(), before);
+        assert!(!page.dirty);
     }
 }

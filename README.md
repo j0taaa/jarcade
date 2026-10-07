@@ -268,6 +268,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-endless
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-ui.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-marks.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-feedback.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -519,10 +520,16 @@ Tap a cell, then a number, or drag to select a group. The four tools enter large
 digits, corner notes, centre notes, or one of nine colours. **Space** cycles
 tools; **Z / X / C / V** select them directly. **Shift + digit** adds corner
 notes; **Ctrl + digit** adds centre notes. Arrows move selection; Shift/Ctrl
-arrows extend it. **Ctrl + A** selects the whole grid. Delete/Backspace/0 erases
+arrows extend it. **Ctrl + A** selects the whole grid. Tap/click outside the
+board or **Ctrl + Shift + A** to deselect. With no cells selected, a number
+highlights all matching givens and entered digits; hidden answers and pencil
+notes are excluded. Press it again to clear the highlight. This never changes
+progress or undo history. Delete/Backspace/0 erases
 the current tool. **Ctrl + Z / Y** undo/redo a complete action.
 
-**Check (K)** highlights incorrect digits; **Hint (H)** explains and enters the
+Incorrect digits turn red and show a warning immediately, including after
+undo/redo or resuming a save. Correcting or erasing them clears the warning.
+**Check (K)** also checks the board; **Hint (H)** explains and enters the
 next logically forced digit, or points out a contradiction to clear. Notes do
 not constrain the hint solver. Givens cannot be changed. Reset is confirmed
 and undoable. A full grid wins only if every Sudoku and variant rule holds.

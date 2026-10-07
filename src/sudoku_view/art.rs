@@ -132,12 +132,17 @@ pub fn tool_icon(ui: &Ui, tool: Tool, r: Rect, active: bool) {
         }
     }
 }
+#[derive(Default)]
+pub struct Highlights<'a> {
+    pub selected: &'a [usize],
+    pub matches: &'a [usize],
+    pub mistakes: &'a [usize],
+}
 pub fn draw_board(
     ui: &Ui,
     p: &Puzzle,
     marks: &[Mark],
-    selected: &[usize],
-    mistakes: &[usize],
+    highlights: Highlights<'_>,
     r: Rect,
     preview: bool,
 ) {
@@ -155,7 +160,20 @@ pub fn draw_board(
                 colour(mark.colour, ui.theme.saver),
             );
         }
-        if selected.contains(&i) {
+        if highlights.matches.contains(&i) {
+            draw_rectangle(
+                cell.x,
+                cell.y,
+                cell.w,
+                cell.h,
+                if ui.theme.saver {
+                    Color::new(0.43, 0.32, 0.82, 0.27)
+                } else {
+                    color_u8!(234, 226, 254, 255)
+                },
+            );
+        }
+        if highlights.selected.contains(&i) {
             draw_rectangle(
                 cell.x,
                 cell.y,
@@ -168,7 +186,7 @@ pub fn draw_board(
                 },
             );
         }
-        if mistakes.contains(&i) {
+        if highlights.mistakes.contains(&i) {
             draw_rectangle(
                 cell.x,
                 cell.y,
@@ -286,7 +304,13 @@ pub fn draw_board(
                 &value.to_string(),
                 cell,
                 (u * 0.56).clamp(if preview { 2. } else { 8. }, 38.),
-                if given > 0 {
+                if highlights.mistakes.contains(&i) {
+                    if ui.theme.saver {
+                        color_u8!(255, 151, 142, 255)
+                    } else {
+                        color_u8!(196, 58, 55, 255)
+                    }
+                } else if given > 0 {
                     ui.theme.text
                 } else {
                     if ui.theme.saver {
@@ -336,7 +360,7 @@ pub fn draw_board(
                 }
             }
         }
-        if selected.contains(&i) {
+        if highlights.selected.contains(&i) {
             draw_rectangle_lines(
                 cell.x + 1.5,
                 cell.y + 1.5,
