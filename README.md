@@ -1,7 +1,7 @@
 # Jarcade
 
 A small Rust / Macroquad arcade with shared game and UI code for desktop, web,
-Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, Table tennis, Wolvesville, Codenames, and Nonograms.
+Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, Table tennis, Wolvesville, Codenames, Nonograms, and Sudoku.
 
 Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa/jarcade>. Hosting uses this PC and the
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
@@ -239,7 +239,7 @@ node --test scripts/*.test.cjs
 bash scripts/build-web.sh
 ```
 
-Rust tests cover Snake, Minesweeper, Fih, Table tennis, Wavelength, Nonograms, and online game rules and edge cases, first-move safety,
+Rust tests cover Snake, Minesweeper, Fih, Table tennis, Wavelength, Nonograms, Sudoku, and online game rules and edge cases, first-move safety,
 flood fill, chording, deterministic placement, FPS measurement,
 frame-independent timing, input event ordering/modifiers, Wavelength handoff privacy, saves and dial projection, fast swipes/taps, continuous
 Snake trails and head rotation, offline pet care, purchases, save validation,
@@ -267,6 +267,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-endless.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-ui.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-marks.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -495,3 +496,40 @@ Choose **Single player → Table tennis**, or open `?game=table-tennis`. Play an
 Matches are first to 11, with a two-point lead. Service changes every two points, then every point at deuce. Tap **Serve** between points; **Space** serves, pauses, or resumes. Backgrounding or resizing pauses the rally without advancing unseen play. Short landscape screens rotate the court. Normal play renders at the display cadence; power saver keeps the court black and uses fewer renders while preserving the same physics. Ready, paused, and point screens stop redrawing, including with the FPS counter enabled.
 
 Rules and CPU logic live in `src/table_tennis.rs`; the shared vector renderer and pointer controls live in `src/table_tennis_view.rs`. Tests cover service, deuce, net clearance, bounces, misses, return timing, difficulty, interruptions, pointer bounds, display-independent simulation, and responsive geometry.
+
+## Sudoku
+
+Choose **Single player → Sudoku**, or open `?game=sudoku`. Generate a new
+**Classic, Killer, V & X, Kropki, Thermo, or Diagonal** puzzle at **Easy, Medium,
+or Hard**, or resume the last saved game. The board and number pad take their
+layout cues from [SudokuPad / Cracking the Cryptic](https://sudokupad.com/).
+
+Every grid is original and generated offline. The generator removes clues only
+when its constraint-aware solver can still finish using logical deductions;
+this proves one solution without guessing. Easy uses singles and variant
+constraints; Medium adds locked candidates; Hard adds naked pairs and removes
+more starting digits. Difficulty is algorithmic rather than a human play-test
+rating. Killer cages cover the grid, stay connected and never repeat a digit.
+XV and Kropki use **positive clues only**: unmarked edges have no extra rule.
+Thermometers increase strictly from bulb to tip; Diagonal adds both diagonals.
+The in-game rules explain each mode. Generation proceeds over input-responsive
+frames, then the page returns to event-driven idle rendering.
+
+Tap a cell, then a number, or drag to select a group. The four tools enter large
+digits, corner notes, centre notes, or one of nine colours. **Space** cycles
+tools; **Z / X / C / V** select them directly. **Shift + digit** adds corner
+notes; **Ctrl + digit** adds centre notes. Arrows move selection; Shift/Ctrl
+arrows extend it. **Ctrl + A** selects the whole grid. Delete/Backspace/0 erases
+the current tool. **Ctrl + Z / Y** undo/redo a complete action.
+
+**Check (K)** highlights incorrect digits; **Hint (H)** explains and enters the
+next logically forced digit, or points out a contradiction to clear. Notes do
+not constrain the hint solver. Givens cannot be changed. Reset is confirmed
+and undoable. A full grid wins only if every Sudoku and variant rule holds.
+Pinch or scroll over the board to zoom, drag a zoomed board to pan, and use
+**1:1** to fit it again. Zoom keeps native display resolution.
+
+The current puzzle, marks, colours and undo/redo history persist in browser
+storage or `sudoku.json` in the OS app-data folder. Malformed or ambiguous
+saves are rejected. Rules and generation live in `src/sudoku.rs` and
+`src/sudoku/`; the responsive UI is in `src/sudoku_view.rs`.

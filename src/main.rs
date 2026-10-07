@@ -10,6 +10,7 @@ mod online_net;
 mod online_style;
 mod online_view;
 mod platform;
+mod sudoku_view;
 mod table_tennis_view;
 mod ui;
 mod wavelength_view;
@@ -43,6 +44,7 @@ enum Screen {
     Wavelength,
     Tennis,
     Nonograms,
+    Sudoku,
 }
 #[derive(Clone, Copy)]
 enum Action {
@@ -59,6 +61,7 @@ enum Action {
     NewWavelength,
     NewTennis,
     NewNonograms,
+    NewSudoku,
     TogglePause,
     TogglePower,
     ToggleHaptics,
@@ -108,6 +111,7 @@ struct App {
     wavelength: wavelength_view::WavelengthPage,
     tennis: table_tennis_view::TennisPage,
     nonograms: nonograms_view::NonogramsPage,
+    sudoku: sudoku_view::SudokuPage,
     home_pan: jarcade::board_pan::BoardPan,
     home_gesture_blocked: bool,
     previous_body: Vec<Cell>,
@@ -129,6 +133,7 @@ impl App {
             wavelength: wavelength_view::WavelengthPage::new(seed()),
             tennis: table_tennis_view::TennisPage::new(seed()),
             nonograms: nonograms_view::NonogramsPage::new(platform::load_nonograms()),
+            sudoku: sudoku_view::SudokuPage::new(platform::load_sudoku()),
             home_pan: jarcade::board_pan::BoardPan::default(),
             home_gesture_blocked: false,
             settings,
@@ -186,6 +191,7 @@ impl App {
                 self.fih_preview = FihPreview::new(&self.fih.pet, self.settings.power_saver);
                 self.mines.cancel_gesture();
                 self.nonograms.cancel_gesture();
+                self.sudoku.cancel_gesture();
                 self.game.pause();
                 self.screen = Screen::Home;
             }
@@ -243,6 +249,12 @@ impl App {
                 self.nonograms.enter();
                 self.screen = Screen::Nonograms;
             }
+            Action::NewSudoku => {
+                self.game.pause();
+                self.online.suspend();
+                self.sudoku.enter();
+                self.screen = Screen::Sudoku;
+            }
             Action::NewFih => {
                 self.game.pause();
                 self.mines.cancel_gesture();
@@ -281,9 +293,11 @@ impl App {
                 | Action::NewWavelength
                 | Action::NewTennis
                 | Action::NewNonograms
+                | Action::NewSudoku
         ) {
             self.home_pan.cancel();
             self.nonograms.cancel_gesture();
+            self.sudoku.cancel_gesture();
             ui.reset_focus();
         }
         platform::appearance(self.settings.power_saver, self.screen == Screen::Wavelength);
@@ -371,6 +385,7 @@ impl App {
                 | Screen::Wavelength
                 | Screen::Tennis
                 | Screen::Nonograms
+                | Screen::Sudoku
         ) {
             return Action::None;
         }
@@ -470,7 +485,7 @@ impl App {
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        let count = 5;
+        let count = if self.multiplayer { 5 } else { 6 };
         let grid = layout.game_grid_for(card_y, count);
         let viewport = Rect::new(x, card_y, width, (screen_height() - card_y - 16.).max(48.));
         let content_height = grid.content_height(count);
@@ -546,13 +561,22 @@ impl App {
                 self.fih_preview.draw(preview_rect);
             } else if index == 3 {
                 table_tennis_view::preview(ui, preview_rect);
-            } else {
+            } else if index == 4 {
                 nonograms_view::preview(ui, preview_rect);
+            } else {
+                self.sudoku.preview(ui, preview_rect);
             }
             let title = if self.multiplayer {
                 ["Coupe", "Dicksit", "Wavelength", "Wolvesville", "Codenames"][index]
             } else {
-                ["Snake", "Minesweeper", "Fih", "Table tennis", "Nonograms"][index]
+                [
+                    "Snake",
+                    "Minesweeper",
+                    "Fih",
+                    "Table tennis",
+                    "Nonograms",
+                    "Sudoku",
+                ][index]
             };
             let title_size = (19.0 * (card.w - 24.0) / ui.text_width(title, 19.0, true)).min(19.0);
             ui.heading(
@@ -566,7 +590,7 @@ impl App {
                 if self.multiplayer {
                     ["Bluff · 2–6", "Stories · 3–8", "Local · 2+", "6–16", "4–16"][index]
                 } else {
-                    ["Classic", "Puzzle", "Pet", "vs CPU", "Puzzle"][index]
+                    ["Classic", "Puzzle", "Pet", "vs CPU", "Puzzle", "Variants"][index]
                 },
                 card.x + 12.0,
                 card.y + image_height + 46.0,
@@ -614,8 +638,10 @@ impl App {
                     Action::NewFih
                 } else if index == 3 {
                     Action::NewTennis
-                } else {
+                } else if index == 4 {
                     Action::NewNonograms
+                } else {
+                    Action::NewSudoku
                 };
                 break;
             }
@@ -901,6 +927,10 @@ async fn main() {
         app.nonograms.enter();
         app.screen = Screen::Nonograms;
     }
+    if app.screen == Screen::Home && platform::launch_sudoku() {
+        app.sudoku.enter();
+        app.screen = Screen::Sudoku;
+    }
     platform::appearance(app.settings.power_saver, app.screen == Screen::Wavelength);
     let timer = platform::WakeTimer::new();
     let subscriber = macroquad::input::utils::register_input_subscriber();
@@ -927,6 +957,7 @@ async fn main() {
             input.cancel();
             app.mines.cancel_gesture();
             app.nonograms.cancel_gesture();
+            app.sudoku.cancel_gesture();
             app.home_pan.cancel();
             input.interrupted = false;
         }
@@ -963,6 +994,12 @@ async fn main() {
                 Action::None
             } else if app.screen == Screen::Nonograms {
                 if app.nonograms.back() {
+                    Action::Home
+                } else {
+                    Action::None
+                }
+            } else if app.screen == Screen::Sudoku {
+                if app.sudoku.back() {
                     Action::Home
                 } else {
                     Action::None
@@ -1024,6 +1061,20 @@ async fn main() {
                     Action::None
                 }
             }
+            Screen::Sudoku => {
+                if let Some(pulse) = app.sudoku.draw(&mut ui, input.pointer, &input.keys) {
+                    app.pulse(pulse, frame_start);
+                }
+                if let Some(data) = app.sudoku.take_save() {
+                    let saved = platform::save_sudoku(&data);
+                    app.sudoku.saved(saved);
+                }
+                if app.sudoku.take_home() {
+                    Action::Home
+                } else {
+                    Action::None
+                }
+            }
             Screen::Settings => app.settings_page(&mut ui, &layout),
             Screen::Game => app.game_page(&mut ui, &layout),
             Screen::Fih => {
@@ -1049,6 +1100,7 @@ async fn main() {
             || (app.screen == Screen::Tennis && app.tennis.needs_frame())
             || (app.screen == Screen::Mines && app.mines.needs_frame())
             || (app.screen == Screen::Nonograms && app.nonograms.needs_frame())
+            || (app.screen == Screen::Sudoku && app.sudoku.needs_frame())
             || (app.screen == Screen::Home && app.home_pan.active())
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
             || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
@@ -1067,7 +1119,11 @@ async fn main() {
                     screen_height() - 25.0
                 } else if matches!(
                     app.screen,
-                    Screen::Wavelength | Screen::Tennis | Screen::Multiplayer | Screen::Nonograms
+                    Screen::Wavelength
+                        | Screen::Tennis
+                        | Screen::Multiplayer
+                        | Screen::Nonograms
+                        | Screen::Sudoku
                 ) {
                     screen_height() - 18.0
                 } else {
@@ -1076,7 +1132,11 @@ async fn main() {
                 78.0,
                 if matches!(
                     app.screen,
-                    Screen::Wavelength | Screen::Tennis | Screen::Multiplayer | Screen::Nonograms
+                    Screen::Wavelength
+                        | Screen::Tennis
+                        | Screen::Multiplayer
+                        | Screen::Nonograms
+                        | Screen::Sudoku
                 ) {
                     14.0
                 } else {
@@ -1118,6 +1178,12 @@ async fn main() {
                             .then(|| ui.focused_item())
                             .flatten(),
                     ),
+                    (
+                        app.sudoku.revision,
+                        (app.screen == Screen::Sudoku)
+                            .then(|| ui.focused_item())
+                            .flatten(),
+                    ),
                     app.multiplayer,
                 ),
                 app.fih.round.as_ref().map(|r| {
@@ -1137,11 +1203,12 @@ async fn main() {
                 Screen::Wavelength => app.wavelength.announcement(),
                 Screen::Tennis => app.tennis.announcement(),
                 Screen::Nonograms => app.nonograms.announcement(ui.focused_item()),
+                Screen::Sudoku => app.sudoku.announcement(ui.focused_item()),
                 Screen::Home => {
                     if app.multiplayer {
                         "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, or Codenames. Coupe, Dicksit, Wolvesville and Codenames use online rooms; Wavelength is local on this device.".to_owned()
                     } else {
-                        "Jarcade. Games. Select Snake, Minesweeper, Fih, Table tennis, or Nonograms to play."
+                        "Jarcade. Games. Select Snake, Minesweeper, Fih, Table tennis, Nonograms, or Sudoku to play."
                             .to_owned()
                     }
                 }
@@ -1171,6 +1238,7 @@ async fn main() {
             || ui.activated
             || (app.screen == Screen::Mines && app.mines.needs_frame())
             || (app.screen == Screen::Nonograms && app.nonograms.needs_frame())
+            || (app.screen == Screen::Sudoku && app.sudoku.needs_frame())
             || (app.screen == Screen::Home && app.home_pan.active())
         {
             Some(0.0)

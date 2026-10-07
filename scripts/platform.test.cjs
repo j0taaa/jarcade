@@ -196,3 +196,26 @@ test('Nonograms storage failures are reported without interrupting play', () => 
   assert.equal(app.env.jarcade_nonograms_load(0, 65536), 0);
   assert.equal(app.env.jarcade_nonograms_save(0, 10), 0);
 });
+
+test('Sudoku progress persists separately and loading respects the buffer capacity', () => {
+  const app = adapter();
+  const store = new Map([['jarcade.wavelength.v1', 'local party'], ['jarcade.settings.v1', 'settings']]);
+  app.context.localStorage = { getItem: key => store.get(key), setItem: (key, value) => store.set(key, value) };
+  const data = JSON.stringify({ picture: 'Peixe', cells: ['filled', 'crossed', 'empty'] });
+  const bytes = new TextEncoder().encode(data);
+  new Uint8Array(app.memory.buffer).set(bytes);
+  assert.equal(app.env.jarcade_sudoku_save(0, bytes.length), 1);
+  assert.equal(store.get('jarcade.sudoku.v1'), data);
+  assert.equal(store.get('jarcade.wavelength.v1'), 'local party');
+  assert.equal(store.get('jarcade.settings.v1'), 'settings');
+  assert.equal(app.env.jarcade_sudoku_load(1024, 4096), bytes.length);
+  assert.equal(new TextDecoder().decode(new Uint8Array(app.memory.buffer, 1024, bytes.length)), data);
+  assert.equal(app.env.jarcade_sudoku_load(1024, 4), 4);
+  assert.equal(new TextDecoder().decode(new Uint8Array(app.memory.buffer, 1024, 4)), '{"pi');
+});
+
+test('Sudoku storage failures are reported without interrupting play', () => {
+  const app = adapter();
+  assert.equal(app.env.jarcade_sudoku_load(0, 262144), 0);
+  assert.equal(app.env.jarcade_sudoku_save(0, 10), 0);
+});

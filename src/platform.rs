@@ -19,6 +19,8 @@ unsafe extern "C" {
     fn jarcade_wavelength_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_nonograms_load(buffer: *mut u8, capacity: usize) -> usize;
     fn jarcade_nonograms_save(buffer: *const u8, length: usize) -> i32;
+    fn jarcade_sudoku_load(buffer: *mut u8, capacity: usize) -> usize;
+    fn jarcade_sudoku_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_interrupted() -> i32;
     fn jarcade_haptics_supported() -> i32;
     fn jarcade_haptic(kind: i32);
@@ -246,6 +248,43 @@ pub fn save_nonograms(data: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let Some(path) = settings_path().map(|p| p.with_file_name("nonograms.json")) else {
+            return false;
+        };
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        let temp = path.with_extension("tmp");
+        std::fs::create_dir_all(parent)
+            .and_then(|()| std::fs::write(&temp, data))
+            .and_then(|()| std::fs::rename(temp, path))
+            .is_ok()
+    }
+}
+
+pub fn load_sudoku() -> Option<jarcade::sudoku::Game> {
+    #[cfg(target_arch = "wasm32")]
+    let data = {
+        let mut buffer = vec![0u8; 262_144];
+        // SAFETY: the bundled adapter copies at most the supplied capacity.
+        let n = unsafe { jarcade_sudoku_load(buffer.as_mut_ptr(), buffer.len()) }.min(buffer.len());
+        String::from_utf8_lossy(&buffer[..n]).into_owned()
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let data = settings_path()
+        .and_then(|p| std::fs::read_to_string(p.with_file_name("sudoku.json")).ok())
+        .unwrap_or_default();
+    jarcade::sudoku::Game::restore(&data)
+}
+
+pub fn save_sudoku(data: &str) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: the adapter reads the live UTF-8 slice synchronously.
+    unsafe {
+        jarcade_sudoku_save(data.as_ptr(), data.len()) != 0
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(path) = settings_path().map(|p| p.with_file_name("sudoku.json")) else {
             return false;
         };
         let Some(parent) = path.parent() else {
@@ -692,6 +731,9 @@ pub fn launch_table_tennis() -> bool {
 }
 pub fn launch_nonograms() -> bool {
     launch_local_game("nonograms")
+}
+pub fn launch_sudoku() -> bool {
+    launch_local_game("sudoku")
 }
 fn launch_local_game(game: &str) -> bool {
     #[cfg(target_arch = "wasm32")]
