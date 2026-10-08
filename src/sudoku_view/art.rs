@@ -29,6 +29,7 @@ pub enum Glyph {
     Check,
     Hint,
     Reset,
+    Candidates,
 }
 pub fn glyph(ui: &Ui, g: Glyph, r: Rect) {
     let c = r.center();
@@ -96,6 +97,17 @@ pub fn glyph(ui: &Ui, g: Glyph, r: Rect) {
             line(vec2(3., 3.), vec2(3., 7.));
             line(vec2(-3., 7.), vec2(3., 7.));
             line(vec2(-2., 10.), vec2(2., 10.));
+        }
+        Glyph::Candidates => {
+            draw_rectangle_lines(c.x - 9., c.y - 9., 18., 18., 1.3, ink);
+            for i in 0..9 {
+                draw_circle(
+                    c.x - 5. + (i % 3) as f32 * 5.,
+                    c.y - 5. + (i / 3) as f32 * 5.,
+                    1.,
+                    ink,
+                );
+            }
         }
     }
 }

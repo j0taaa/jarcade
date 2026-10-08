@@ -270,6 +270,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-marks.c
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-feedback.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-taps.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-notes.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -532,6 +533,13 @@ empty cells containing that digit in corner or centre pencil notes. Hidden
 answers and unmarked possibilities are excluded. Press it again to clear the
 highlight. This never changes progress or undo history. Delete/Backspace/0 erases
 the current tool. **Ctrl + Z / Y** undo/redo a complete action.
+
+**Fill notes** (grid icon beside the eraser, or **N**) replaces the pencil
+notes in every empty cell with all digits absent from its visible row, column
+and 3×3 box. It uses only givens and entered digits, ignores all variant clues
+and further deductions, and never fills a large digit. It writes corner notes,
+clears older centre notes in empty cells, preserves colours, and is one
+undoable, saved action.
 
 Incorrect digits turn red and show a warning immediately, including after
 undo/redo or resuming a save. Correcting or erasing them clears the warning.

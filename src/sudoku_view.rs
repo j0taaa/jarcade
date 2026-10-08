@@ -302,8 +302,11 @@ impl SudokuPage {
             if i == 15 {
                 return Some("Erase".into());
             }
+            if i == 16 {
+                return Some("Fill notes: row, column and box only (N)".into());
+            }
             return ["Undo", "Redo", "Check", "Hint", "Fit board", "Reset"]
-                .get(i - 16)
+                .get(i - 17)
                 .map(|s| (*s).into());
         }
         None
@@ -311,7 +314,7 @@ impl SudokuPage {
     pub fn announcement(&self, focus: Option<usize>) -> String {
         let mut s = if self.modal == Modal::Help {
             format!(
-                "Jarcade. Sudoku. Rules. {} Space switches Digit and Corner notes. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap a selected cell to deselect; double-tap a cell with one distinct pencil-note digit to fill it. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
+                "Jarcade. Sudoku. Rules. {} Space switches Digit and Corner notes. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap a selected cell to deselect; double-tap a cell with one distinct pencil-note digit to fill it. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. N or Fill notes replaces pencil notes in every empty cell using visible row, column and box digits only, ignoring variant rules and deductions. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
                 self.variant.rules().join(" ")
             )
         } else if self.modal == Modal::Reset {
@@ -626,7 +629,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. Ctrl+Z/Y: undo/redo. Pinch/scroll: zoom. Wrong digits turn red. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights digits and lighter notes.",
+                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. N: fill row/column/box notes only. Ctrl+Z/Y: undo/redo. Pinch/scroll: zoom. Wrong digits turn red. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights digits and lighter notes.",
                     Rect::new(r.x + 44. + col, r.y + 62., col, h - 132.),
                     12.,
                     ui.theme.muted,
@@ -641,14 +644,14 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. Ctrl+Z/Y: undo/redo.",
+                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. N: fill row/column/box notes only. Ctrl+Z/Y: undo/redo.",
                     Rect::new(r.x + 22., r.y + 172., w - 44., 108.),
                     12.,
                     ui.theme.muted,
                 );
                 wrap(
                     ui,
-                    "Pinch or scroll to zoom. Drag to pan when zoomed. Wrong digits turn red immediately. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights digits and, more lightly, pencil notes.",
+                    "Pinch/scroll: zoom; drag a zoomed board to pan. Wrong digits turn red. Tap outside or Ctrl+Shift+A to deselect, then 1–9 highlights digits and lighter notes.",
                     Rect::new(r.x + 22., r.y + 278., w - 44., 70.),
                     12.,
                     ui.theme.muted,
@@ -796,6 +799,19 @@ impl SudokuPage {
                 self.cancel_gesture();
                 self.revision += 1;
             }
+            6 => {
+                self.cancel_gesture();
+                let changed = self.game.as_mut()?.fill_classic_candidates();
+                self.tool = Tool::Corner;
+                let pulse = if changed { self.changed() } else { None };
+                self.message = if self.mistakes.is_empty() {
+                    "Notes filled · row, column, box only.".into()
+                } else {
+                    format!("{} Notes filled.", self.mistake_message())
+                };
+                self.revision += 1;
+                return pulse;
+            }
             _ => {}
         }
         None
@@ -849,6 +865,23 @@ impl SudokuPage {
                 .is_some_and(|g| g.erase(&self.selected, self.tool))
         {
             pulse = self.changed().or(pulse);
+        }
+        let r = l.candidates();
+        let fill = button(ui, r, false);
+        art::glyph(
+            ui,
+            Glyph::Candidates,
+            Rect::new(r.center().x - 43., r.center().y - 16., 28., 32.),
+        );
+        ui.centered(
+            "Fill notes",
+            Rect::new(r.center().x - 11., r.y, 56., r.h),
+            11.,
+            ui.theme.text,
+            false,
+        );
+        if fill {
+            pulse = self.action(6, l).or(pulse);
         }
         for (i, g) in [
             Glyph::Undo,
@@ -1136,6 +1169,9 @@ impl SudokuPage {
             if key == KeyCode::R {
                 pulse = self.action(5, l).or(pulse);
             }
+            if !command && key == KeyCode::N {
+                pulse = self.action(6, l).or(pulse);
+            }
             if let Some((dx, dy)) = match key {
                 KeyCode::Left => Some((-1, 0)),
                 KeyCode::Right => Some((1, 0)),
@@ -1389,6 +1425,35 @@ mod tests {
         )));
         page.resume();
         page
+    }
+    #[test]
+    fn fill_notes_action_works_without_selection_and_preserves_digit_lookup() {
+        let mut page = page();
+        let l = Layout::new(390., 844.);
+        let before = page.game.as_ref().unwrap().marks.clone();
+        let values = page.game.as_ref().unwrap().values();
+        page.enter_number(4, Tool::Digit);
+        assert!(page.action(6, &l).is_some());
+        assert!(page.selected.is_empty());
+        assert_eq!(page.tool, Tool::Corner);
+        assert_eq!(page.highlighted_digit, Some(4));
+        assert_eq!(page.game.as_ref().unwrap().values(), values);
+        assert!(
+            page.game
+                .as_ref()
+                .unwrap()
+                .marks
+                .iter()
+                .any(|m| m.corner != 0)
+        );
+        assert_eq!(page.game.as_ref().unwrap().hints, 0);
+        assert!(page.dirty);
+        assert!(page.message.contains("box only"));
+        assert!(page.announcement(None).contains("Candidate digit 4:"));
+        assert!(page.focused_label(16).unwrap().contains("Fill notes"));
+        assert_eq!(page.focused_label(17).as_deref(), Some("Undo"));
+        page.action(0, &l);
+        assert_eq!(page.game.as_ref().unwrap().marks, before);
     }
     fn point(l: &Layout, cell: usize) -> Vec2 {
         l.board.point() + vec2(cell as f32 % 9. + 0.5, (cell / 9) as f32 + 0.5) * l.board.w / 9.

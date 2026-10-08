@@ -404,6 +404,28 @@ impl Game {
         let notes = mark.corner | mark.centre;
         (notes.count_ones() == 1).then(|| notes.trailing_zeros() as u8 + 1)
     }
+    /// Replace notes in every empty cell with simple classic candidates.
+    /// Read only visible digits: no solution, variant constraints or deductions.
+    pub fn fill_classic_candidates(&mut self) -> bool {
+        let values = self.values();
+        let mut rows = [0u16; 9];
+        let mut columns = [0u16; 9];
+        let mut boxes = [0u16; 9];
+        for (i, &value) in values.iter().enumerate() {
+            rows[i / 9] |= bit(value);
+            columns[i % 9] |= bit(value);
+            boxes[(i / 27) * 3 + (i % 9) / 3] |= bit(value);
+        }
+        let before = self.marks.clone();
+        for (i, mark) in self.marks.iter_mut().enumerate() {
+            if values[i] == 0 {
+                mark.corner = ALL_DIGITS
+                    & !(rows[i / 9] | columns[i % 9] | boxes[(i / 27) * 3 + (i % 9) / 3]);
+                mark.centre = 0;
+            }
+        }
+        self.finish(before)
+    }
     pub fn filled(&self) -> usize {
         self.values().iter().filter(|&&d| d > 0).count()
     }
@@ -874,6 +896,104 @@ mod tests {
         assert_eq!(g.single_candidate(i), None);
         g.enter(&[i], wrong, Tool::Digit);
         assert_eq!(g.single_candidate(i), None);
+    }
+    #[test]
+    fn fill_notes_ignores_variant_rules_and_hidden_answers() {
+        for variant in Variant::ALL {
+            let mut g = game();
+            g.puzzle.variant = variant;
+            g.puzzle.givens.fill(0);
+            // Only 1, 2 and 3 are visible classic peers of r1c1.
+            g.puzzle.givens[1] = 1;
+            g.puzzle.givens[72] = 2;
+            g.puzzle.givens[10] = 3;
+            g.puzzle.givens[40] = 4; // Diagonal only: must not exclude 4.
+            // Extra clues deliberately restrict r1c1 further. Ignore them all.
+            g.puzzle.cages = vec![Cage {
+                cells: vec![0],
+                sum: 4,
+            }];
+            g.puzzle.edges = vec![Edge {
+                a: 0,
+                b: 1,
+                relation: Relation::Five,
+            }];
+            g.puzzle.thermos = vec![vec![0, 1]];
+            g.puzzle.solution[0] = 9;
+            assert!(g.fill_classic_candidates());
+            assert_eq!(g.marks[0].corner, ALL_DIGITS & !(bit(1) | bit(2) | bit(3)));
+            assert_eq!(g.marks[0].value, 0);
+            assert_eq!(g.hints, 0);
+        }
+    }
+    #[test]
+    fn fill_notes_never_fills_singles_cascades_or_resolves_contradictions() {
+        let mut g = game();
+        g.puzzle.givens.fill(0);
+        for i in 1..9 {
+            g.puzzle.givens[i] = i as u8;
+        }
+        g.puzzle.givens[9] = 9;
+        for i in 0..8 {
+            g.puzzle.givens[27 + i] = i as u8 + 1;
+        }
+        let visible = g.values();
+        assert!(g.fill_classic_candidates());
+        assert_eq!(g.marks[0].corner, 0); // No mechanically possible digit.
+        assert_eq!(g.marks[35].corner, bit(9)); // A single remains a note.
+        assert_ne!(g.marks[44].corner & bit(9), 0); // No cascading eliminations.
+        assert_eq!(g.values(), visible);
+        assert_eq!(g.hints, 0);
+    }
+    #[test]
+    fn fill_notes_replaces_notes_preserves_digits_and_colours_and_is_one_saved_action() {
+        for variant in Variant::ALL {
+            let mut g = Game::new(Generator::new(27, variant, Difficulty::Medium).finish());
+            let cells: Vec<_> = (0..81).filter(|&i| g.puzzle.givens[i] == 0).collect();
+            g.enter(
+                &[cells[0]],
+                g.puzzle.solution[cells[0]] % 9 + 1,
+                Tool::Digit,
+            );
+            g.enter(&cells, 2, Tool::Corner);
+            g.enter(&cells, 3, Tool::Centre);
+            g.enter(&(0..81).collect::<Vec<_>>(), 4, Tool::Colour);
+            let values = g.values();
+            let before = g.marks.clone();
+            let history = g.undo.len();
+            assert!(g.fill_classic_candidates());
+            assert_eq!(g.undo.len(), history + 1);
+            assert_eq!(g.values(), values);
+            for i in 0..81 {
+                assert_eq!(g.marks[i].colour, before[i].colour);
+                if values[i] != 0 {
+                    assert_eq!(g.marks[i], before[i]);
+                    continue;
+                }
+                let expected = (1..=9)
+                    .filter(|&digit| {
+                        !(0..81).any(|peer| {
+                            (peer / 9 == i / 9
+                                || peer % 9 == i % 9
+                                || (peer / 27 == i / 27 && peer % 9 / 3 == i % 9 / 3))
+                                && values[peer] == digit
+                        })
+                    })
+                    .fold(0, |mask, digit| mask | bit(digit));
+                assert_eq!(g.marks[i].corner, expected, "{variant:?}, cell {i}");
+                assert_eq!(g.marks[i].centre, 0);
+            }
+            let after = g.marks.clone();
+            assert!(!g.fill_classic_candidates());
+            assert_eq!(g.undo.len(), history + 1);
+            let mut restored = Game::restore(&g.encode()).unwrap();
+            assert_eq!(restored.marks, after);
+            assert_eq!(restored.hints, 0);
+            restored.undo();
+            assert_eq!(restored.marks, before);
+            restored.redo();
+            assert_eq!(restored.marks, after);
+        }
     }
     #[test]
     fn space_entry_toggle_only_uses_digit_and_corner_notes() {
