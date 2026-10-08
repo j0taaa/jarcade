@@ -1318,9 +1318,9 @@ impl SudokuPage {
         if let Some(generator) = self.generator.as_mut() {
             let start = get_time();
             let mut done = false;
-            for _ in 0..64 {
+            for _ in 0..1_024 {
                 done = generator.step();
-                if done || get_time() - start >= 0.003 {
+                if done || get_time() - start >= 0.008 {
                     break;
                 }
             }

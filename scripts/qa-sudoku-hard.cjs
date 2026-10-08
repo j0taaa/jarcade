@@ -5,12 +5,12 @@ const base=process.env.JARCADE_QA_URL||'http://127.0.0.1:8092';
 (async()=>{
  const browser=await chromium.launch({executablePath:process.env.JARCADE_CHROME||'/usr/bin/google-chrome',args:['--no-sandbox','--enable-unsafe-swiftshader']});const errors=[];
  try{
-  const cases=process.env.JARCADE_QA_FOCUS==='smoke'?[[390,844,false]]:[[390,844,false],[390,844,true],[1440,900,false],[568,320,false]];
+  const cases=process.env.JARCADE_QA_FOCUS==='smoke'?[[390,844,false]]:process.env.JARCADE_QA_FOCUS==='wide'?[[1440,900,false],[568,320,false]]:[[390,844,false],[390,844,true],[1440,900,false],[568,320,false]];
   for(const[w,h,saver]of cases){
    const c=await browser.newContext({viewport:{width:w,height:h},deviceScaleFactor:3,hasTouch:true});
    await c.addInitScript(saver=>{localStorage.setItem('jarcade.settings.v1',`3 ${saver?1:0} 1 0 1`);const raf=requestAnimationFrame;window.__frames=0;window.requestAnimationFrame=cb=>raf.call(window,t=>{window.__frames++;cb(t);});},saver);
    const p=await c.newPage();p.on('pageerror',e=>errors.push(e.message));const label=()=>p.locator('canvas').getAttribute('aria-label');
-   const ready=s=>p.waitForFunction(s=>document.querySelector('canvas')?.getAttribute('aria-label')?.includes(s),s,{timeout:60000});
+   const ready=async s=>{try{await p.waitForFunction(s=>document.querySelector('canvas')?.getAttribute('aria-label')?.includes(s),s,{timeout:60000});}catch(e){console.error({waiting:s,label:await label(),frames:await p.evaluate(()=>window.__frames)});await p.screenshot({path:'/tmp/jarcade-sudoku-hard-failure.png'});throw e;}};
    const raw=()=>p.evaluate(()=>localStorage.getItem('jarcade.sudoku.v1'));const game=async()=>JSON.parse(await raw()).game;
    const key=async k=>{await p.keyboard.press(k);await p.waitForTimeout(75);};const tap=async xy=>{await p.touchscreen.tap(...xy);await p.waitForTimeout(80);};
    await p.goto(`${base}/?game=sudoku`);await ready('Choose a variant');await tap(setup(w,h).new);await ready('Digit mode');
