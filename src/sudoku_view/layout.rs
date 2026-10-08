@@ -80,18 +80,22 @@ impl Layout {
             u,
         )
     }
-    pub fn erase(&self) -> Rect {
+    pub fn erase(&self, notes_available: bool) -> Rect {
         let u = (self.pad.w - 18.) / 4.;
-        Rect::new(self.pad.x, self.pad.y + 3. * (u + 6.), u, u)
+        Rect::new(
+            self.pad.x,
+            self.pad.y + 3. * (u + 6.),
+            if notes_available {
+                u * 2. + 6.
+            } else {
+                u * 3. + 12.
+            },
+            u,
+        )
     }
     pub fn candidates(&self) -> Rect {
         let u = (self.pad.w - 18.) / 4.;
-        Rect::new(
-            self.pad.x + u + 6.,
-            self.pad.y + 3. * (u + 6.),
-            u * 2. + 6.,
-            u,
-        )
+        Rect::new(self.pad.x + 2. * (u + 6.), self.pad.y + 3. * (u + 6.), u, u)
     }
     pub fn action(&self, i: usize) -> Rect {
         let u = self.actions.w / 6.;
@@ -130,12 +134,13 @@ mod tests {
                 assert!(l.tool(i).bottom() <= h);
             }
             assert!(l.actions.bottom() <= h);
-            for r in [l.erase(), l.candidates()] {
+            for r in [l.erase(true), l.erase(false), l.candidates()] {
                 assert!(r.w >= 44. && r.h >= 44.);
                 assert!(r.x >= 0. && r.right() <= w && r.bottom() <= h);
                 assert!(!r.overlaps(&l.board));
             }
-            assert!(!l.erase().overlaps(&l.candidates()));
+            assert!(!l.erase(true).overlaps(&l.candidates()));
+            assert!(!l.erase(false).overlaps(&l.tool(3)));
             assert!(!l.candidates().overlaps(&l.tool(3)));
         }
     }

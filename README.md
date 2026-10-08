@@ -534,12 +534,14 @@ answers and unmarked possibilities are excluded. Press it again to clear the
 highlight. This never changes progress or undo history. Delete/Backspace/0 erases
 the current tool. **Ctrl + Z / Y** undo/redo a complete action.
 
-**Fill notes** (grid icon beside the eraser, or **N**) replaces the pencil
-notes in every empty cell with all digits absent from its visible row, column
-and 3×3 box. It uses only givens and entered digits, ignores all variant clues
-and further deductions, and never fills a large digit. It writes corner notes,
-clears older centre notes in empty cells, preserves colours, and is one
-undoable, saved action.
+The **magic wand** beside the eraser (**N**) optionally fills starting corner
+notes in every empty cell using only digits absent from its row, column and
+3×3 box. It ignores variant clues and further deductions and never enters a
+large digit. It is available only before the first progress edit, disappears
+after use or an edit (including notes, colours or a hint), and stays unavailable
+after undo, reset or reload. Selecting cells, highlighting numbers, changing
+tools and zooming do not consume it. The notes are one undoable, saved action;
+only a new puzzle offers the wand again.
 
 Incorrect digits turn red and show a warning immediately, including after
 undo/redo or resuming a save. Correcting or erasing them clears the warning.

@@ -348,6 +348,11 @@ pub struct Game {
     undo: Vec<Change>,
     redo: Vec<Change>,
     pub hints: u32,
+    #[serde(default = "fresh_notes_available")]
+    initial_notes_available: bool,
+}
+fn fresh_notes_available() -> bool {
+    true
 }
 impl Game {
     pub fn new(puzzle: Puzzle) -> Self {
@@ -357,6 +362,7 @@ impl Game {
             undo: Vec::new(),
             redo: Vec::new(),
             hints: 0,
+            initial_notes_available: true,
         }
     }
     pub fn values(&self) -> Vec<u8> {
@@ -404,9 +410,21 @@ impl Game {
         let notes = mark.corner | mark.centre;
         (notes.count_ones() == 1).then(|| notes.trailing_zeros() as u8 + 1)
     }
-    /// Replace notes in every empty cell with simple classic candidates.
+    /// One optional setup action, before any progress has been made.
+    pub fn can_fill_classic_candidates(&self) -> bool {
+        self.initial_notes_available
+            && self.hints == 0
+            && self.undo.is_empty()
+            && self.redo.is_empty()
+            && self.marks.iter().all(|m| *m == Mark::default())
+    }
+    /// Fill starting notes in every empty cell with simple classic candidates.
     /// Read only visible digits: no solution, variant constraints or deductions.
     pub fn fill_classic_candidates(&mut self) -> bool {
+        if !self.can_fill_classic_candidates() {
+            return false;
+        }
+        self.initial_notes_available = false;
         let values = self.values();
         let mut rows = [0u16; 9];
         let mut columns = [0u16; 9];
@@ -424,7 +442,8 @@ impl Game {
                 mark.centre = 0;
             }
         }
-        self.finish(before)
+        self.finish(before);
+        true
     }
     pub fn filled(&self) -> usize {
         self.values().iter().filter(|&&d| d > 0).count()
@@ -436,6 +455,7 @@ impl Game {
         if before == self.marks {
             return false;
         }
+        self.initial_notes_available = false;
         self.undo.push(Change {
             before,
             after: self.marks.clone(),
@@ -617,6 +637,9 @@ impl Game {
             current = &c.after;
         }
         g.hints = g.hints.min(100_000);
+        // Older saves lack the flag: preserve untouched puzzles, but never
+        // reopen setup after progress or an undo, even if the board is empty.
+        g.initial_notes_available = g.can_fill_classic_candidates();
         Some(g)
     }
     fn valid_marks(&self, m: &[Mark]) -> bool {
@@ -946,26 +969,17 @@ mod tests {
         assert_eq!(g.hints, 0);
     }
     #[test]
-    fn fill_notes_replaces_notes_preserves_digits_and_colours_and_is_one_saved_action() {
+    fn starting_notes_are_classic_only_one_saved_action_and_never_reopen() {
         for variant in Variant::ALL {
             let mut g = Game::new(Generator::new(27, variant, Difficulty::Medium).finish());
-            let cells: Vec<_> = (0..81).filter(|&i| g.puzzle.givens[i] == 0).collect();
-            g.enter(
-                &[cells[0]],
-                g.puzzle.solution[cells[0]] % 9 + 1,
-                Tool::Digit,
-            );
-            g.enter(&cells, 2, Tool::Corner);
-            g.enter(&cells, 3, Tool::Centre);
-            g.enter(&(0..81).collect::<Vec<_>>(), 4, Tool::Colour);
+            assert!(g.can_fill_classic_candidates());
             let values = g.values();
             let before = g.marks.clone();
-            let history = g.undo.len();
             assert!(g.fill_classic_candidates());
-            assert_eq!(g.undo.len(), history + 1);
+            assert!(!g.can_fill_classic_candidates());
+            assert_eq!(g.undo.len(), 1);
             assert_eq!(g.values(), values);
             for i in 0..81 {
-                assert_eq!(g.marks[i].colour, before[i].colour);
                 if values[i] != 0 {
                     assert_eq!(g.marks[i], before[i]);
                     continue;
@@ -984,16 +998,77 @@ mod tests {
                 assert_eq!(g.marks[i].centre, 0);
             }
             let after = g.marks.clone();
+            let saved = g.encode();
             assert!(!g.fill_classic_candidates());
-            assert_eq!(g.undo.len(), history + 1);
-            let mut restored = Game::restore(&g.encode()).unwrap();
-            assert_eq!(restored.marks, after);
+            assert_eq!(g.encode(), saved);
+            let mut restored = Game::restore(&saved).unwrap();
+            assert!(!restored.can_fill_classic_candidates());
             assert_eq!(restored.hints, 0);
-            restored.undo();
+            assert!(restored.undo());
             assert_eq!(restored.marks, before);
-            restored.redo();
+            assert!(!restored.fill_classic_candidates());
+            assert!(
+                !Game::restore(&restored.encode())
+                    .unwrap()
+                    .can_fill_classic_candidates()
+            );
+            assert!(restored.redo());
             assert_eq!(restored.marks, after);
+            assert!(restored.reset());
+            assert!(!restored.can_fill_classic_candidates());
+            assert!(!restored.fill_classic_candidates());
         }
+    }
+    #[test]
+    fn first_edit_disables_starting_notes_even_after_undo_or_reset() {
+        for tool in Tool::ALL {
+            let mut g = game();
+            let i = g.puzzle.givens.iter().position(|&v| v == 0).unwrap();
+            let given = g.puzzle.givens.iter().position(|&v| v > 0).unwrap();
+            assert!(!g.enter(&[], 1, tool));
+            assert!(!g.erase(&[i], tool));
+            if tool != Tool::Colour {
+                assert!(!g.enter(&[given], 1, tool));
+            }
+            assert!(g.can_fill_classic_candidates());
+            assert!(g.enter(&[i], 1, tool));
+            let before = g.encode();
+            assert!(!g.fill_classic_candidates());
+            assert_eq!(g.encode(), before);
+            assert!(g.undo());
+            assert!(!g.can_fill_classic_candidates());
+            assert!(g.redo());
+            assert!(g.reset());
+            assert!(
+                !Game::restore(&g.encode())
+                    .unwrap()
+                    .can_fill_classic_candidates()
+            );
+        }
+        let mut g = game();
+        assert!(g.hint().is_some());
+        assert!(!g.can_fill_classic_candidates());
+        assert!(g.undo());
+        assert!(!g.fill_classic_candidates());
+        assert!(Game::new(g.puzzle).can_fill_classic_candidates());
+    }
+    #[test]
+    fn older_saves_only_offer_starting_notes_if_untouched() {
+        let mut g = game();
+        let legacy = |g: &Game| {
+            let mut data: serde_json::Value = serde_json::from_str(&g.encode()).unwrap();
+            data["game"]
+                .as_object_mut()
+                .unwrap()
+                .remove("initial_notes_available");
+            Game::restore(&data.to_string()).unwrap()
+        };
+        assert!(legacy(&g).can_fill_classic_candidates());
+        let i = g.puzzle.givens.iter().position(|&v| v == 0).unwrap();
+        g.enter(&[i], 1, Tool::Corner);
+        assert!(!legacy(&g).can_fill_classic_candidates());
+        g.undo();
+        assert!(!legacy(&g).can_fill_classic_candidates());
     }
     #[test]
     fn space_entry_toggle_only_uses_digit_and_corner_notes() {

@@ -29,7 +29,7 @@ pub enum Glyph {
     Check,
     Hint,
     Reset,
-    Candidates,
+    Wand,
 }
 pub fn glyph(ui: &Ui, g: Glyph, r: Rect) {
     let c = r.center();
@@ -98,15 +98,19 @@ pub fn glyph(ui: &Ui, g: Glyph, r: Rect) {
             line(vec2(-3., 7.), vec2(3., 7.));
             line(vec2(-2., 10.), vec2(2., 10.));
         }
-        Glyph::Candidates => {
-            draw_rectangle_lines(c.x - 9., c.y - 9., 18., 18., 1.3, ink);
-            for i in 0..9 {
-                draw_circle(
-                    c.x - 5. + (i % 3) as f32 * 5.,
-                    c.y - 5. + (i / 3) as f32 * 5.,
-                    1.,
-                    ink,
-                );
+        Glyph::Wand => {
+            let shaft = [vec2(-10., 8.), vec2(4., -6.), vec2(7., -3.), vec2(-7., 11.)];
+            for i in 0..4 {
+                line(shaft[i], shaft[(i + 1) % 4]);
+            }
+            line(vec2(0., -2.), vec2(3., 1.));
+            for (p, size) in [
+                (vec2(8., -10.), 3.),
+                (vec2(-5., -8.), 2.),
+                (vec2(10., 4.), 2.),
+            ] {
+                line(p - vec2(size, 0.), p + vec2(size, 0.));
+                line(p - vec2(0., size), p + vec2(0., size));
             }
         }
     }

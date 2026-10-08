@@ -302,11 +302,15 @@ impl SudokuPage {
             if i == 15 {
                 return Some("Erase".into());
             }
-            if i == 16 {
+            let notes_available = self
+                .game
+                .as_ref()
+                .is_some_and(Game::can_fill_classic_candidates);
+            if i == 16 && notes_available {
                 return Some("Fill notes: row, column and box only (N)".into());
             }
             return ["Undo", "Redo", "Check", "Hint", "Fit board", "Reset"]
-                .get(i - 17)
+                .get(i - 16 - usize::from(notes_available))
                 .map(|s| (*s).into());
         }
         None
@@ -314,7 +318,7 @@ impl SudokuPage {
     pub fn announcement(&self, focus: Option<usize>) -> String {
         let mut s = if self.modal == Modal::Help {
             format!(
-                "Jarcade. Sudoku. Rules. {} Space switches Digit and Corner notes. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap a selected cell to deselect; double-tap a cell with one distinct pencil-note digit to fill it. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. N or Fill notes replaces pencil notes in every empty cell using visible row, column and box digits only, ignoring variant rules and deductions. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
+                "Jarcade. Sudoku. Rules. {} Space switches Digit and Corner notes. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap a selected cell to deselect; double-tap a cell with one distinct pencil-note digit to fill it. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. Before the first edit, N or the magic wand fills starting notes using row, column and box digits only, ignoring variant rules and deductions. It disappears after use or an edit. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
                 self.variant.rules().join(" ")
             )
         } else if self.modal == Modal::Reset {
@@ -629,7 +633,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. N: fill row/column/box notes only. Ctrl+Z/Y: undo/redo. Pinch/scroll: zoom. Wrong digits turn red. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights digits and lighter notes.",
+                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. N/wand: starting notes, before editing. Ctrl+Z/Y: undo/redo. Pinch/scroll: zoom. Wrong digits turn red. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights digits and lighter notes.",
                     Rect::new(r.x + 44. + col, r.y + 62., col, h - 132.),
                     12.,
                     ui.theme.muted,
@@ -644,7 +648,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. N: fill row/column/box notes only. Ctrl+Z/Y: undo/redo.",
+                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. N/wand: starting notes, before editing. Ctrl+Z/Y: undo/redo.",
                     Rect::new(r.x + 22., r.y + 172., w - 44., 108.),
                     12.,
                     ui.theme.muted,
@@ -800,6 +804,9 @@ impl SudokuPage {
                 self.revision += 1;
             }
             6 => {
+                if !self.game.as_ref()?.can_fill_classic_candidates() {
+                    return None;
+                }
                 self.cancel_gesture();
                 let changed = self.game.as_mut()?.fill_classic_candidates();
                 self.tool = Tool::Corner;
@@ -855,7 +862,11 @@ impl SudokuPage {
                 self.revision += 1;
             }
         }
-        let r = l.erase();
+        let notes_available = self
+            .game
+            .as_ref()
+            .is_some_and(Game::can_fill_classic_candidates);
+        let r = l.erase(notes_available);
         let erase = button(ui, r, false);
         art::glyph(ui, Glyph::Erase, r);
         if erase
@@ -866,22 +877,14 @@ impl SudokuPage {
         {
             pulse = self.changed().or(pulse);
         }
-        let r = l.candidates();
-        let fill = button(ui, r, false);
-        art::glyph(
-            ui,
-            Glyph::Candidates,
-            Rect::new(r.center().x - 43., r.center().y - 16., 28., 32.),
-        );
-        ui.centered(
-            "Fill notes",
-            Rect::new(r.center().x - 11., r.y, 56., r.h),
-            11.,
-            ui.theme.text,
-            false,
-        );
-        if fill {
-            pulse = self.action(6, l).or(pulse);
+        if notes_available {
+            let r = l.candidates();
+            let fill = button(ui, r, false);
+            art::glyph(ui, Glyph::Wand, r);
+            if fill {
+                pulse = self.action(6, l).or(pulse);
+                ui.reset_focus();
+            }
         }
         for (i, g) in [
             Glyph::Undo,
@@ -1433,6 +1436,8 @@ mod tests {
         let before = page.game.as_ref().unwrap().marks.clone();
         let values = page.game.as_ref().unwrap().values();
         page.enter_number(4, Tool::Digit);
+        assert!(page.focused_label(16).unwrap().contains("Fill notes"));
+        assert_eq!(page.focused_label(17).as_deref(), Some("Undo"));
         assert!(page.action(6, &l).is_some());
         assert!(page.selected.is_empty());
         assert_eq!(page.tool, Tool::Corner);
@@ -1450,10 +1455,38 @@ mod tests {
         assert!(page.dirty);
         assert!(page.message.contains("box only"));
         assert!(page.announcement(None).contains("Candidate digit 4:"));
-        assert!(page.focused_label(16).unwrap().contains("Fill notes"));
-        assert_eq!(page.focused_label(17).as_deref(), Some("Undo"));
+        assert_eq!(page.focused_label(16).as_deref(), Some("Undo"));
+        let saved = page.game.as_ref().unwrap().encode();
+        assert!(page.action(6, &l).is_none());
+        assert_eq!(page.game.as_ref().unwrap().encode(), saved);
         page.action(0, &l);
         assert_eq!(page.game.as_ref().unwrap().marks, before);
+        assert!(page.action(6, &l).is_none());
+        assert_eq!(page.focused_label(16).as_deref(), Some("Undo"));
+    }
+    #[test]
+    fn first_edit_hides_wand_and_its_shortcut_is_inert() {
+        let mut page = page();
+        let l = Layout::new(390., 844.);
+        page.selected = vec![
+            page.game
+                .as_ref()
+                .unwrap()
+                .puzzle
+                .givens
+                .iter()
+                .position(|&v| v == 0)
+                .unwrap(),
+        ];
+        assert!(page.enter_number(3, Tool::Corner).is_some());
+        assert_eq!(page.focused_label(16).as_deref(), Some("Undo"));
+        let before = page.game.as_ref().unwrap().encode();
+        let tool = page.tool;
+        let revision = page.revision;
+        assert!(page.action(6, &l).is_none());
+        assert_eq!(page.game.as_ref().unwrap().encode(), before);
+        assert_eq!(page.tool, tool);
+        assert_eq!(page.revision, revision);
     }
     fn point(l: &Layout, cell: usize) -> Vec2 {
         l.board.point() + vec2(cell as f32 % 9. + 0.5, (cell / 9) as f32 + 0.5) * l.board.w / 9.

@@ -34,25 +34,38 @@ function verify(before,after){
       await p.goto(`${base}/?game=sudoku`);await ready('Choose a variant');
       for(const variant of w===390&&!saver?[0,1,2,3,4,5]:[0]){
         const s=setup(w,h,saved);await tap(s.variant(variant));await tap(s.difficulty(1));await tap(s.new);await ready('Digit mode');saved=true;
-        let g=await game();const blank=g.puzzle.givens.map((v,i)=>!v?i:-1).filter(i=>i>=0),i=blank[0],j=blank[1],wrong=g.puzzle.solution[i]%9+1;
-        await tap(l.cell(i));await key(String(wrong));await ready('1 incorrect digit');
-        await tap(l.cell(j));await key('x');await key('2');await key('c');await key('3');await key('v');await key('4');
-        const before=await game();await tap(l.candidates);await ready('Corner notes mode');await ready('Notes filled.');let after=await game();const masks=verify(before,after);assert.equal(after.undo.length,before.undo.length+1,'All cells are one undoable action');
-        if(variant===0)await p.screenshot({path:`/tmp/jarcade-sudoku-fill-notes-${w}-${saver}.png`});
-        await key('Control+z');assert.deepEqual((await game()).marks,before.marks);await key('Control+y');assert.deepEqual((await game()).marks,after.marks);
-        const idempotent=await raw();await key('n');assert.equal(await raw(),idempotent,'Repeat fill must not add history');
-        // Generated notes participate in digit lookup without changing the save.
-        await key('Control+Shift+a');const digit=Array.from({length:9},(_,n)=>n+1).find(n=>masks.some(mask=>mask&(1<<(n-1))));assert(digit);await key(String(digit));const matches=masks.map((mask,i)=>mask&(1<<(digit-1))?i:-1).filter(i=>i>=0).map(i=>`r${Math.floor(i/9)+1}c${i%9+1}`).join(', ');await ready(`Candidate digit ${digit}: ${matches}.`);assert.equal(await raw(),idempotent);
-        // The smaller eraser must still clear only the selected cell's notes.
-        const eraseCell=masks.findIndex(mask=>mask);await tap(l.cell(eraseCell));await tap(l.erase);const erased=await game();const expected=after.marks.map(m=>m.slice());expected[eraseCell][1]=0;assert.deepEqual(erased.marks,expected);
-        await key('n');verify(erased,await game());const stored=await raw();await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');assert.equal(await raw(),stored);
-        if(w===1440){await key('Tab');for(let f=0;f<16;f++)await key('Tab');await ready('Focused control: Fill notes:');const beforeFocus=await raw();await key('Enter');await ready('Corner notes mode');assert.equal(await raw(),beforeFocus);await key('Space');}
+        let g=await game();const blank=g.puzzle.givens.map((v,i)=>!v?i:-1).filter(i=>i>=0),i=blank[0];
+        assert.equal(g.initial_notes_available,true);
+        // Selection, lookup, tool changes, fit and checks are navigation, not progress.
+        await key('4');await tap(l.cell(i));await key('x');await key('z');await tap(l.action(4));await key('k');
+        assert.equal((await game()).initial_notes_available,true);
+        if(variant===0)await p.screenshot({path:`/tmp/jarcade-sudoku-wand-before-${w}-${saver}.png`});
+        const before=await game();
+        if(w===1440){await key('Tab');for(let f=0;f<16;f++)await key('Tab');await ready('Focused control: Fill notes:');await key('Enter');}
+        else if(variant===5)await key('n');
+        else await tap(l.candidates);
+        await ready('Corner notes mode');await ready('Notes filled');let after=await game();const masks=verify(before,after);assert.equal(after.undo.length,before.undo.length+1,'All cells are one undoable action');assert.equal(after.initial_notes_available,false);
+        if(variant===0)await p.screenshot({path:`/tmp/jarcade-sudoku-wand-after-${w}-${saver}.png`});
+        const filled=await raw();await key('n');assert.equal(await raw(),filled,'Shortcut cannot refill after use');
+        await key('Control+z');assert.deepEqual((await game()).marks,before.marks);assert.equal((await game()).initial_notes_available,false);const undone=await raw();await key('n');assert.equal(await raw(),undone,'Undo cannot reopen setup');
+        await key('Control+y');assert.deepEqual((await game()).marks,after.marks);
+        if(w===1440){await key('Tab');for(let f=0;f<16;f++)await key('Tab');await ready('Focused control: Undo.');await key('Enter');assert.deepEqual((await game()).marks,before.marks);await tap(l.action(1));}
+        // Generated notes still participate in digit lookup.
+        await key('Control+Shift+a');const digit=Array.from({length:9},(_,n)=>n+1).find(n=>masks.some(mask=>mask&(1<<(n-1))));assert(digit);const beforeLookup=await raw();await key(String(digit));const matches=masks.map((mask,i)=>mask&(1<<(digit-1))?i:-1).filter(i=>i>=0).map(i=>`r${Math.floor(i/9)+1}c${i%9+1}`).join(', ');await ready(`Candidate digit ${digit}: ${matches}.`);assert.equal(await raw(),beforeLookup);
+        // Eraser expands into the wand's old space when the wand disappears.
+        const eraseCell=masks.findIndex(mask=>mask);await tap(l.cell(eraseCell));await tap(l.candidates);const erased=await game();const expected=after.marks.map(m=>m.slice());expected[eraseCell][1]=0;assert.deepEqual(erased.marks,expected);
+        const stored=await raw();await key('n');assert.equal(await raw(),stored);await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');assert.equal(await raw(),stored);await key('n');assert.equal(await raw(),stored,'Reload cannot reopen setup');
         await tap([w-30,30]);await ready('Rules.');if(variant===0)await p.screenshot({path:`/tmp/jarcade-sudoku-fill-notes-help-${w}-${saver}.png`});await key('Escape');await ready('Digit mode');
         await p.waitForTimeout(350);const frames=await p.evaluate(()=>window.__frames);await p.waitForTimeout(400);assert.equal(await p.evaluate(()=>window.__frames),frames,'Fill notes must not force idle redraws');
         await key('Escape');await ready('Choose a variant');
+        // A fresh puzzle restores the wand; the first ordinary edit consumes it.
+        await tap(setup(w,h,true).new);await ready('Digit mode');g=await game();assert.equal(g.initial_notes_available,true);
+        const first=g.puzzle.givens.findIndex(v=>!v);await tap(l.cell(first));await key(variant%2?'x':'z');await key(String(g.puzzle.solution[first]));assert.equal((await game()).initial_notes_available,false);
+        await key('Control+z');const manualUndo=await raw();await key('n');assert.equal(await raw(),manualUndo,'First manual edit permanently disables the wand');
+        await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');await key('n');assert.equal(await raw(),manualUndo);await key('Escape');await ready('Choose a variant');
       }
       await c.close();console.log(`Fill notes passed: ${w}×${h}, ${saver?'black':'white'}`);
     }
-    assert.deepEqual(errors,[]);console.log('Classic-only mechanical candidates in all six variants, visible wrong digits, untouched values/colours, one-step undo/redo, idempotence, lookup, erase, touch/keyboard accessibility, saved notes, responsive layouts and idle rendering passed.');
+    assert.deepEqual(errors,[]);console.log('Classic-only starting candidates in all six variants, one-time wand, first-edit lockout, undo/reload lockout, new-puzzle reset, expanded eraser, keyboard focus, lookup, persistence, responsive layouts and idle rendering passed.');
   }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
