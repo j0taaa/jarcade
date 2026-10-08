@@ -7,7 +7,7 @@ exports.play=(w,h)=>{
   return {cell:i=>[board.x+(i%9+.5)*board.w/9,board.y+(Math.floor(i/9)+.5)*board.w/9],number:d=>[pad.x+((d-1)%3)*(unit+6)+unit/2,pad.y+Math.floor((d-1)/3)*(unit+6)+unit/2],tool:i=>[pad.x+3*(unit+6)+unit/2,pad.y+i*(unit+6)+unit/2],action:i=>[actions.x+(i+.5)*actions.w/6,actions.y+actions.h/2],erase:[pad.x+unit/2,pad.y+3*(unit+6)+unit/2],candidates:[pad.x+2*(unit+6)+unit/2,pad.y+3*(unit+6)+unit/2]};
 };
 exports.setup=(w,h,saved=false)=>{
-  const width=Math.min(w-32,780),x=(w-width)/2,compact=h<500,cols=w>=680||compact?3:2,rows=6/cols,gap=10,cw=(width-gap*(cols-1))/cols,top=compact?64:80;
-  const ch=Math.max(compact?56:68,Math.min(compact?100:156,(h-top-166-gap*(rows-1))/rows));const y=top+rows*(ch+gap)+6;const nw=saved?(width-10)/2:width;
-  return {variant:i=>[x+(i%cols+.5)*(cw+gap)-gap/2,top+(Math.floor(i/cols)+.5)*(ch+gap)-gap/2],difficulty:i=>[x+(i+.5)*width/3-2,y+21],new:[x+nw/2,y+42+14+23],resume:[x+nw+10+nw/2,y+42+14+23]};
+  const width=Math.min(w-32,780),x=(w-width)/2,compact=h<500,cols=w>=680||compact?3:2,rows=6/cols,gap=compact?6:10,cw=(width-gap*(cols-1))/cols,top=compact?64:80;
+  const ch=Math.max(compact?44:52,Math.min(compact?100:156,(h-top-166-gap*rows)/rows));const marksY=top+rows*(ch+gap)+6,y=marksY+50;const nw=saved?(width-10)/2:width;
+  return {marking:i=>[x+(i+.5)*(width+10)/2-5,marksY+22],variant:i=>[x+(i%cols+.5)*(cw+gap)-gap/2,top+(Math.floor(i/cols)+.5)*(ch+gap)-gap/2],difficulty:i=>[x+(i+.5)*width/3-2,y+21],new:[x+nw/2,y+42+14+23],resume:[x+nw+10+nw/2,y+42+14+23]};
 };

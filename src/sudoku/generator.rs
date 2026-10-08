@@ -1,5 +1,8 @@
 use super::solver::{LogicalProof, UniquenessProof};
-use super::{Cage, Difficulty, Edge, HardRating, Puzzle, Relation, Variant, bit, logical_solve};
+use super::{
+    Cage, ClueMode, Difficulty, Edge, HardRating, Puzzle, Relation, Rules, Variant, bit,
+    logical_solve,
+};
 struct Rng(u64);
 impl Rng {
     fn next(&mut self) -> u64 {
@@ -19,26 +22,82 @@ impl Rng {
         }
     }
 }
+#[derive(Clone)]
+enum Removal {
+    Digit(usize, u8),
+    Edge(Edge),
+    Cage(Cage),
+    Thermo(Vec<usize>),
+}
+impl Removal {
+    fn remove(&self, p: &mut Puzzle) -> bool {
+        match self {
+            Self::Digit(i, _) => p.givens[*i] = 0,
+            Self::Edge(edge) => {
+                let xv = matches!(edge.relation, Relation::Five | Relation::Ten);
+                if p.edges
+                    .iter()
+                    .filter(|e| matches!(e.relation, Relation::Five | Relation::Ten) == xv)
+                    .count()
+                    <= 1
+                {
+                    return false;
+                }
+                p.edges.retain(|e| e != edge);
+            }
+            Self::Cage(cage) => {
+                if p.cages.len() <= 1 {
+                    return false;
+                }
+                p.cages.retain(|c| c != cage);
+            }
+            Self::Thermo(thermo) => {
+                if p.thermos.len() <= 1 {
+                    return false;
+                }
+                p.thermos.retain(|t| t != thermo);
+            }
+        }
+        true
+    }
+    fn restore(self, p: &mut Puzzle) {
+        match self {
+            Self::Digit(i, value) => p.givens[i] = value,
+            Self::Edge(e) => p.edges.push(e),
+            Self::Cage(c) => p.cages.push(c),
+            Self::Thermo(t) => p.thermos.push(t),
+        }
+    }
+}
 /// A resumable logical proof keeps web and phone input responsive.
 pub struct Generator {
     puzzle: Puzzle,
-    order: Vec<usize>,
+    order: Vec<Removal>,
     at: usize,
     target: usize,
     done: bool,
+    failed: bool,
     proof: Option<LogicalProof>,
-    pending: Option<(usize, u8)>,
+    pending: Option<Removal>,
     uniqueness: Option<UniquenessProof>,
     base_seed: u64,
     attempts: u64,
 }
 impl Generator {
     pub fn new(seed: u64, variant: Variant, difficulty: Difficulty) -> Self {
+        Self::build(seed, variant, difficulty, None)
+    }
+    pub fn with_rules(seed: u64, rules: Rules, difficulty: Difficulty) -> Self {
+        Self::build(seed, rules.primary(), difficulty, Some(rules))
+    }
+    fn build(seed: u64, variant: Variant, difficulty: Difficulty, custom: Option<Rules>) -> Self {
+        let rules = custom.unwrap_or_else(|| Rules::from_variant(variant));
         let mut rng = Rng(seed);
-        let solution = solved_grid(&mut rng, variant == Variant::Diagonal);
+        let solution = solved_grid(&mut rng, rules.diagonal);
         let mut puzzle = Puzzle {
             seed,
             variant,
+            rules: custom,
             difficulty,
             givens: solution.clone(),
             solution,
@@ -48,38 +107,66 @@ impl Generator {
             effort: 0,
             hard_rating: None,
         };
-        match variant {
-            Variant::Killer => make_cages(&mut puzzle, &mut rng),
-            Variant::Xv | Variant::Kropki => {
-                for a in 0..81 {
-                    for b in neighbours(a).into_iter().filter(|&b| b > a) {
-                        let x = puzzle.solution[a];
-                        let y = puzzle.solution[b];
-                        let relation = if variant == Variant::Xv {
-                            if x + y == 5 {
-                                Some(Relation::Five)
-                            } else if x + y == 10 {
-                                Some(Relation::Ten)
-                            } else {
-                                None
-                            }
-                        } else if x == 2 * y || y == 2 * x {
-                            Some(Relation::Double)
-                        } else if x.abs_diff(y) == 1 {
-                            Some(Relation::Consecutive)
-                        } else {
-                            None
-                        };
-                        if let Some(relation) = relation {
-                            puzzle.edges.push(Edge { a, b, relation });
-                        }
+        if rules.killer {
+            make_cages(&mut puzzle, &mut rng);
+        }
+        for a in 0..81 {
+            for b in neighbours(a).into_iter().filter(|&b| b > a) {
+                let x = puzzle.solution[a];
+                let y = puzzle.solution[b];
+                if rules.xv.enabled() {
+                    let relation = if x + y == 5 {
+                        Some(Relation::Five)
+                    } else if x + y == 10 {
+                        Some(Relation::Ten)
+                    } else {
+                        None
+                    };
+                    if let Some(relation) = relation {
+                        puzzle.edges.push(Edge { a, b, relation });
+                    }
+                }
+                if rules.kropki.enabled() {
+                    let relation = if x == 2 * y || y == 2 * x {
+                        Some(Relation::Double)
+                    } else if x.abs_diff(y) == 1 {
+                        Some(Relation::Consecutive)
+                    } else {
+                        None
+                    };
+                    if let Some(relation) = relation {
+                        puzzle.edges.push(Edge { a, b, relation });
                     }
                 }
             }
-            Variant::Thermo => make_thermos(&mut puzzle, &mut rng),
-            _ => {}
         }
-        let mut order: Vec<_> = (0..81).collect();
+        if rules.thermo {
+            make_thermos(&mut puzzle, &mut rng);
+        }
+        let mut order: Vec<_> = (0..81)
+            .map(|i| Removal::Digit(i, puzzle.solution[i]))
+            .collect();
+        // Full symbols are mandatory. All other clues are candidates for
+        // removal, including cage totals; uncaged cells use normal Sudoku.
+        // Legacy generators retain their exact clue format and seeded output.
+        if custom.is_some() && difficulty == Difficulty::Hard {
+            order.extend(
+                puzzle
+                    .edges
+                    .iter()
+                    .filter(|e| {
+                        if matches!(e.relation, Relation::Five | Relation::Ten) {
+                            rules.xv == ClueMode::Partial
+                        } else {
+                            rules.kropki == ClueMode::Partial
+                        }
+                    })
+                    .cloned()
+                    .map(Removal::Edge),
+            );
+            order.extend(puzzle.cages.iter().cloned().map(Removal::Cage));
+            order.extend(puzzle.thermos.iter().cloned().map(Removal::Thermo));
+        }
         rng.shuffle(&mut order);
         let targets = match variant {
             Variant::Killer => [28, 16],
@@ -99,6 +186,7 @@ impl Generator {
                 targets[difficulty.level() as usize]
             },
             done: false,
+            failed: false,
             proof: None,
             pending: None,
             uniqueness: None,
@@ -113,7 +201,7 @@ impl Generator {
         if self.done {
             1.
         } else {
-            self.at as f32 / 81. * 0.9
+            self.at as f32 / self.order.len() as f32 * 0.9
         }
     }
     pub fn step(&mut self) -> bool {
@@ -125,9 +213,9 @@ impl Generator {
                 return false;
             }
             let unique = self.uniqueness.take().unwrap().count() == Some(1);
-            let (i, old) = self.pending.take().unwrap();
+            let removal = self.pending.take().unwrap();
             if !unique {
-                self.puzzle.givens[i] = old;
+                removal.restore(&mut self.puzzle);
             }
             return false;
         }
@@ -136,9 +224,9 @@ impl Generator {
                 return false;
             }
             let result = self.proof.take().unwrap().result();
-            if let Some((i, old)) = self.pending.take() {
+            if let Some(removal) = self.pending.take() {
                 if !result.solved {
-                    self.puzzle.givens[i] = old;
+                    removal.restore(&mut self.puzzle);
                 }
                 return false;
             }
@@ -161,16 +249,27 @@ impl Generator {
             }
             // A full grid isn't Hard just because it has few givens. Discard
             // easy or unproved candidates rather than silently downgrading.
+            if self.puzzle.rules.is_some() && self.attempts >= 255 {
+                self.failed = true;
+                self.done = true;
+                return true;
+            }
             let base_seed = self.base_seed;
             let attempts = self.attempts + 1;
             let seed = base_seed.wrapping_add(attempts.wrapping_mul(0x9e3779b97f4a7c15));
-            *self = Self::new(seed, self.puzzle.variant, self.puzzle.difficulty);
+            *self = Self::build(
+                seed,
+                self.puzzle.variant,
+                self.puzzle.difficulty,
+                self.puzzle.rules,
+            );
             self.base_seed = base_seed;
             self.attempts = attempts;
             return false;
         }
         if self.at == self.order.len()
-            || self.puzzle.givens.iter().filter(|&&v| v > 0).count() <= self.target
+            || self.target > 0
+                && self.puzzle.givens.iter().filter(|&&v| v > 0).count() <= self.target
         {
             self.proof = Some(LogicalProof::new(
                 self.puzzle.clone(),
@@ -179,11 +278,12 @@ impl Generator {
             ));
             return false;
         }
-        let i = self.order[self.at];
+        let removal = self.order[self.at].clone();
         self.at += 1;
-        let old = self.puzzle.givens[i];
-        self.puzzle.givens[i] = 0;
-        self.pending = Some((i, old));
+        if !removal.remove(&mut self.puzzle) {
+            return false;
+        }
+        self.pending = Some(removal);
         if self.puzzle.difficulty == Difficulty::Hard {
             self.uniqueness = Some(UniquenessProof::new(self.puzzle.clone(), 2_000));
         } else {
@@ -196,9 +296,17 @@ impl Generator {
         false
     }
 
-    pub fn finish(mut self) -> Puzzle {
+    pub fn try_finish(mut self) -> Result<Puzzle, &'static str> {
         while !self.step() {}
-        self.puzzle
+        if self.failed {
+            Err("No expert puzzle found. Try partial markings, fewer rules, or retry.")
+        } else {
+            Ok(self.puzzle)
+        }
+    }
+    pub fn finish(self) -> Puzzle {
+        self.try_finish()
+            .expect("No puzzle satisfies the selected difficulty")
     }
 }
 fn neighbours(i: usize) -> Vec<usize> {

@@ -230,7 +230,7 @@ pub fn draw_board(
             );
         }
     }
-    if p.variant == Variant::Diagonal {
+    if p.rules().diagonal {
         let c = if ui.theme.saver {
             Color::new(0.4, 0.45, 0.8, 0.3)
         } else {
@@ -365,12 +365,12 @@ pub fn draw_board(
             for d in 1..=9 {
                 if mark.corner & bit(d) != 0 {
                     let j = d - 1;
-                    let cy = if p.variant == Variant::Killer {
+                    let cy = if p.rules().killer {
                         0.37 + j as f32 / 3. * 0.26
                     } else {
                         0.2 + (j / 3) as f32 * 0.3
                     };
-                    let cy = if p.variant == Variant::Killer {
+                    let cy = if p.rules().killer {
                         0.34 + (j / 3) as f32 * 0.24
                     } else {
                         cy
@@ -410,7 +410,26 @@ pub fn draw_board(
             r.x + (e.b % 9) as f32 * u + u / 2.,
             r.y + (e.b / 9) as f32 * u + u / 2.,
         );
-        let c = (a + b) * 0.5;
+        let mut c = (a + b) * 0.5;
+        let paired = p.edges.iter().any(|other| {
+            other.a.min(other.b) == e.a.min(e.b)
+                && other.a.max(other.b) == e.a.max(e.b)
+                && matches!(other.relation, Relation::Five | Relation::Ten)
+                    != matches!(e.relation, Relation::Five | Relation::Ten)
+        });
+        if paired {
+            let direction = if matches!(e.relation, Relation::Five | Relation::Ten) {
+                -1.
+            } else {
+                1.
+            };
+            let offset = u * 0.17 * direction;
+            if e.a / 9 == e.b / 9 {
+                c.y += offset;
+            } else {
+                c.x += offset;
+            }
+        }
         match e.relation {
             Relation::Consecutive | Relation::Double => {
                 let filled = e.relation == Relation::Double;

@@ -95,6 +95,126 @@ impl Variant {
         }
     }
 }
+/// Independent constraints. An absent rules field keeps legacy single-mode saves intact.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClueMode {
+    #[default]
+    Off,
+    Partial,
+    Full,
+}
+impl ClueMode {
+    pub fn enabled(self) -> bool {
+        self != Self::Off
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Partial => "Partial",
+            Self::Full => "Full",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rules {
+    pub killer: bool,
+    pub xv: ClueMode,
+    pub kropki: ClueMode,
+    pub thermo: bool,
+    pub diagonal: bool,
+}
+impl Rules {
+    pub fn from_variant(v: Variant) -> Self {
+        let mut rules = Self::default();
+        rules.toggle(v);
+        rules
+    }
+    pub fn contains(self, v: Variant) -> bool {
+        match v {
+            Variant::Classic => self == Self::default(),
+            Variant::Killer => self.killer,
+            Variant::Xv => self.xv.enabled(),
+            Variant::Kropki => self.kropki.enabled(),
+            Variant::Thermo => self.thermo,
+            Variant::Diagonal => self.diagonal,
+        }
+    }
+    pub fn toggle(&mut self, v: Variant) {
+        match v {
+            Variant::Classic => *self = Self::default(),
+            Variant::Killer => self.killer = !self.killer,
+            Variant::Xv => {
+                self.xv = if self.xv.enabled() {
+                    ClueMode::Off
+                } else {
+                    ClueMode::Partial
+                }
+            }
+            Variant::Kropki => {
+                self.kropki = if self.kropki.enabled() {
+                    ClueMode::Off
+                } else {
+                    ClueMode::Partial
+                }
+            }
+            Variant::Thermo => self.thermo = !self.thermo,
+            Variant::Diagonal => self.diagonal = !self.diagonal,
+        }
+    }
+    pub fn primary(self) -> Variant {
+        Variant::ALL
+            .into_iter()
+            .skip(1)
+            .find(|&v| self.contains(v))
+            .unwrap_or(Variant::Classic)
+    }
+    pub fn name(self) -> String {
+        let names: Vec<_> = Variant::ALL
+            .into_iter()
+            .skip(1)
+            .filter(|&v| self.contains(v))
+            .map(|v| {
+                let full = v == Variant::Xv && self.xv == ClueMode::Full
+                    || v == Variant::Kropki && self.kropki == ClueMode::Full;
+                format!("{}{}", v.name(), if full { " (full)" } else { "" })
+            })
+            .collect();
+        if names.is_empty() {
+            "Classic".into()
+        } else {
+            names.join(" + ")
+        }
+    }
+    pub fn explanation(self) -> String {
+        let mut lines = vec!["Rows, columns and 3 × 3 boxes contain 1–9 once."];
+        if self.killer {
+            lines.push("Cages sum to their total, without repeats.");
+        }
+        if self.xv.enabled() {
+            lines.push("V pairs sum to 5; X pairs sum to 10.");
+            lines.push(if self.xv == ClueMode::Full {
+                "Full XV: an edge without V/X cannot sum to 5 or 10."
+            } else {
+                "Partial XV: unmarked edges have no XV restriction."
+            });
+        }
+        if self.kropki.enabled() {
+            lines.push("White dots: consecutive. Black dots: double. 1/2 may use either dot.");
+            lines.push(if self.kropki == ClueMode::Full {
+                "Full dots: an edge without a dot is neither consecutive nor double."
+            } else {
+                "Partial dots: unmarked edges have no dot restriction."
+            });
+        }
+        if self.thermo {
+            lines.push("Thermometers increase from bulb to tip.");
+        }
+        if self.diagonal {
+            lines.push("Both long diagonals contain 1–9 once.");
+        }
+        lines.join(" ")
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Difficulty {
     #[default]
@@ -136,13 +256,13 @@ impl Relation {
         }
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edge {
     pub a: usize,
     pub b: usize,
     pub relation: Relation,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cage {
     pub cells: Vec<usize>,
     pub sum: u8,
@@ -166,6 +286,8 @@ impl HardRating {
 pub struct Puzzle {
     pub seed: u64,
     pub variant: Variant,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<Rules>,
     pub difficulty: Difficulty,
     pub givens: Vec<u8>,
     pub solution: Vec<u8>,
@@ -177,6 +299,52 @@ pub struct Puzzle {
     pub hard_rating: Option<HardRating>,
 }
 impl Puzzle {
+    pub fn rules(&self) -> Rules {
+        self.rules
+            .unwrap_or_else(|| Rules::from_variant(self.variant))
+    }
+    pub fn name(&self) -> String {
+        self.rules().name()
+    }
+    /// Negative constraints apply separately to XV and dots, even when both
+    /// marks share an edge. A V is not a dot and a dot is not a V.
+    pub(super) fn negative_pairs(&self) -> Vec<(usize, usize, bool, bool)> {
+        let rules = self.rules();
+        if rules.xv != ClueMode::Full && rules.kropki != ClueMode::Full {
+            return Vec::new();
+        }
+        let mut marks = [[0u8; 2]; 81];
+        for edge in &self.edges {
+            let a = edge.a.min(edge.b);
+            let direction = usize::from(edge.a.abs_diff(edge.b) == 9);
+            if a < 81 {
+                marks[a][direction] |= if matches!(edge.relation, Relation::Five | Relation::Ten) {
+                    1
+                } else {
+                    2
+                };
+            }
+        }
+        let mut pairs = Vec::new();
+        for (a, mark) in marks.iter().enumerate() {
+            for (direction, &marked) in mark.iter().enumerate() {
+                if direction == 0 && a % 9 == 8 || direction == 1 && a >= 72 {
+                    continue;
+                }
+                let xv = rules.xv == ClueMode::Full && marked & 1 == 0;
+                let dots = rules.kropki == ClueMode::Full && marked & 2 == 0;
+                if xv || dots {
+                    pairs.push((a, a + if direction == 0 { 1 } else { 9 }, xv, dots));
+                }
+            }
+        }
+        pairs
+    }
+    pub(super) fn unmarked_accepts(a: u8, b: u8, xv: bool, dots: bool) -> bool {
+        (!xv || a + b != 5 && a + b != 10)
+            && (!dots || a.abs_diff(b) != 1 && a != 2 * b && b != 2 * a)
+    }
+
     pub fn units(&self) -> Vec<Vec<usize>> {
         let mut units = Vec::with_capacity(29);
         for i in 0..9 {
@@ -188,7 +356,7 @@ impl Puzzle {
                     .collect(),
             );
         }
-        if self.variant == Variant::Diagonal {
+        if self.rules().diagonal {
             units.push((0..9).map(|i| i * 10).collect());
             units.push((0..9).map(|i| i * 9 + 8 - i).collect());
         }
@@ -212,9 +380,13 @@ impl Puzzle {
         }) {
             return false;
         }
-        self.edges
+        self.negative_pairs()
             .iter()
-            .all(|e| e.relation.accepts(values[e.a], values[e.b]))
+            .all(|&(a, b, xv, dots)| Self::unmarked_accepts(values[a], values[b], xv, dots))
+            && self
+                .edges
+                .iter()
+                .all(|e| e.relation.accepts(values[e.a], values[e.b]))
             && self
                 .thermos
                 .iter()
@@ -231,7 +403,7 @@ impl Puzzle {
         {
             return false;
         }
-        if self.cages.len() > 81 || self.edges.len() > 144 || self.thermos.len() > 12 {
+        if self.cages.len() > 81 || self.edges.len() > 288 || self.thermos.len() > 12 {
             return false;
         }
         let adjacent = |a: usize, b: usize| {
@@ -266,29 +438,40 @@ impl Puzzle {
                 return false;
             }
         }
-        if self.variant == Variant::Killer && covered.contains(&false) {
+        if self.rules.is_none() && self.variant == Variant::Killer && covered.contains(&false) {
             return false;
         }
-        if self.variant != Variant::Killer && !self.cages.is_empty() {
+        if !self.rules().killer && !self.cages.is_empty() {
             return false;
         }
         let mut seen = Vec::new();
         for e in &self.edges {
-            if !adjacent(e.a, e.b) || seen.contains(&(e.a.min(e.b), e.a.max(e.b))) {
+            if !adjacent(e.a, e.b)
+                || seen.contains(&(
+                    e.a.min(e.b),
+                    e.a.max(e.b),
+                    matches!(e.relation, Relation::Five | Relation::Ten),
+                ))
+            {
                 return false;
             }
-            if !matches!(
-                (self.variant, e.relation),
-                (Variant::Xv, Relation::Five | Relation::Ten)
-                    | (Variant::Kropki, Relation::Consecutive | Relation::Double)
-            ) {
+            let allowed = match e.relation {
+                Relation::Five | Relation::Ten => self.rules().xv.enabled(),
+                Relation::Consecutive | Relation::Double => self.rules().kropki.enabled(),
+            };
+            if !allowed {
                 return false;
             }
-            seen.push((e.a.min(e.b), e.a.max(e.b)));
+            seen.push((
+                e.a.min(e.b),
+                e.a.max(e.b),
+                matches!(e.relation, Relation::Five | Relation::Ten),
+            ));
         }
-        if self.variant != Variant::Thermo && !self.thermos.is_empty() {
+        if !self.rules().thermo && !self.thermos.is_empty() {
             return false;
         }
+
         for t in &self.thermos {
             if !(2..=6).contains(&t.len())
                 || t.windows(2).any(|p| !adjacent(p[0], p[1]))
@@ -717,6 +900,184 @@ struct Save {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn combined_rules_generate_unique_puzzles_at_all_supported_clue_settings() {
+        for killer in [false, true] {
+            for xv in [ClueMode::Off, ClueMode::Partial, ClueMode::Full] {
+                for kropki in [ClueMode::Off, ClueMode::Partial, ClueMode::Full] {
+                    for thermo in [false, true] {
+                        for diagonal in [false, true] {
+                            let rules = Rules {
+                                killer,
+                                xv,
+                                kropki,
+                                thermo,
+                                diagonal,
+                            };
+                            for difficulty in [Difficulty::Easy, Difficulty::Medium] {
+                                let p = Generator::with_rules(17, rules, difficulty)
+                                    .try_finish()
+                                    .unwrap();
+                                assert_eq!(p.rules(), rules);
+                                assert!(p.validated(), "{rules:?} {difficulty:?}");
+                                assert_eq!(solution_count(&p, &p.givens, 10_000), Some(1));
+                                let saved = Game::new(p.clone()).encode();
+                                assert_eq!(Game::restore(&saved).unwrap().encode(), saved);
+                                let mut unseen = p.clone();
+                                unseen.solution.fill(9);
+                                assert_eq!(
+                                    logical_solve(&unseen, &p.givens, difficulty.level()).masks,
+                                    logical_solve(&p, &p.givens, difficulty.level()).masks
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn full_markings_enforce_absence_separately_and_allow_either_dot_for_one_two() {
+        let rules = Rules {
+            xv: ClueMode::Full,
+            kropki: ClueMode::Full,
+            ..Rules::default()
+        };
+        let p = Generator::with_rules(17, rules, Difficulty::Easy).finish();
+        assert!(p.complete_valid(&p.solution));
+        let overlap = p
+            .edges
+            .iter()
+            .find(|e| {
+                matches!(e.relation, Relation::Five | Relation::Ten)
+                    && p.edges.iter().any(|d| {
+                        d.a == e.a
+                            && d.b == e.b
+                            && matches!(d.relation, Relation::Consecutive | Relation::Double)
+                    })
+            })
+            .unwrap();
+        for xv in [false, true] {
+            let mut missing = p.clone();
+            missing.edges.retain(|e| {
+                !(e.a == overlap.a
+                    && e.b == overlap.b
+                    && matches!(e.relation, Relation::Five | Relation::Ten) == xv)
+            });
+            assert!(!missing.complete_valid(&p.solution));
+            assert!(!logical_solve(&missing, &p.solution, 0).valid);
+            if xv {
+                missing.rules.as_mut().unwrap().xv = ClueMode::Partial;
+            } else {
+                missing.rules.as_mut().unwrap().kropki = ClueMode::Partial;
+            }
+            assert!(missing.complete_valid(&p.solution));
+        }
+        let mut white = p.clone();
+        let e = white
+            .edges
+            .iter_mut()
+            .find(|e| {
+                matches!((p.solution[e.a], p.solution[e.b]), (1, 2) | (2, 1))
+                    && e.relation == Relation::Double
+            })
+            .unwrap();
+        e.relation = Relation::Consecutive;
+        assert!(white.complete_valid(&white.solution));
+        assert!(white.validated());
+        white.edges.push(white.edges.last().unwrap().clone());
+        assert!(!white.validated());
+    }
+    #[test]
+    fn sparse_hard_combinations_keep_the_expert_floor_and_prune_optional_clues() {
+        let cases = [
+            Rules::default(),
+            Rules::from_variant(Variant::Killer),
+            Rules::from_variant(Variant::Xv),
+            Rules::from_variant(Variant::Kropki),
+            Rules::from_variant(Variant::Thermo),
+            Rules::from_variant(Variant::Diagonal),
+            Rules {
+                killer: true,
+                thermo: true,
+                ..Rules::default()
+            },
+            Rules {
+                xv: ClueMode::Partial,
+                kropki: ClueMode::Full,
+                ..Rules::default()
+            },
+            Rules {
+                xv: ClueMode::Partial,
+                diagonal: true,
+                ..Rules::default()
+            },
+            Rules {
+                xv: ClueMode::Full,
+                diagonal: true,
+                ..Rules::default()
+            },
+            Rules {
+                kropki: ClueMode::Full,
+                ..Rules::default()
+            },
+            Rules {
+                killer: true,
+                xv: ClueMode::Partial,
+                kropki: ClueMode::Partial,
+                thermo: true,
+                diagonal: true,
+            },
+        ];
+        for rules in cases {
+            let p = Generator::with_rules(17, rules, Difficulty::Hard)
+                .try_finish()
+                .unwrap();
+            assert!(p.validated());
+            assert!(p.hard_rating.as_ref().unwrap().qualifies());
+            assert_eq!(solution_count(&p, &p.givens, 10_000), Some(1));
+            for i in 0..81 {
+                if p.givens[i] > 0 {
+                    let mut less = p.clone();
+                    less.givens[i] = 0;
+                    assert_ne!(
+                        solution_count(&less, &less.givens, 10_000),
+                        Some(1),
+                        "Remove unnecessary digit {i}"
+                    );
+                }
+            }
+            if rules.killer {
+                assert!(!p.cages.is_empty());
+                assert!(p.cages.iter().map(|c| c.cells.len()).sum::<usize>() < 81);
+            }
+            if rules.thermo {
+                assert!(!p.thermos.is_empty());
+                assert!(p.thermos.len() < 7);
+            }
+            let encoded = Game::new(p).encode();
+            assert_eq!(Game::restore(&encoded).unwrap().encode(), encoded);
+        }
+    }
+    #[test]
+    fn overinformative_hard_combinations_stop_without_an_easy_fallback() {
+        let rules = Rules {
+            xv: ClueMode::Full,
+            kropki: ClueMode::Full,
+            ..Rules::default()
+        };
+        let mut generator = Generator::with_rules(17, rules, Difficulty::Hard);
+        let mut steps = 0;
+        while !generator.step() {
+            steps += 1;
+            assert!(steps < 10_000_000);
+        }
+        assert!(generator.attempts() <= 256);
+        match generator.try_finish() {
+            Ok(p) => assert!(p.hard_rating.as_ref().unwrap().qualifies()),
+            Err(message) => assert!(message.contains("partial")),
+        }
+    }
     #[test]
     fn all_modes_and_levels_generate_unique_logical_puzzles() {
         for variant in Variant::ALL {

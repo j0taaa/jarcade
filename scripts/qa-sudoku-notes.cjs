@@ -33,7 +33,7 @@ function verify(before,after){
       const l=play(w,h);let saved=false;
       await p.goto(`${base}/?game=sudoku`);await ready('Choose a variant');
       for(const variant of w===390&&!saver?[0,1,2,3,4,5]:[0]){
-        const s=setup(w,h,saved);await tap(s.variant(variant));await tap(s.difficulty(1));await tap(s.new);await ready('Digit mode');saved=true;
+        const s=setup(w,h,saved);await tap(s.variant(0));if(variant!==0)await tap(s.variant(variant));await tap(s.difficulty(1));await tap(s.new);await ready('Digit mode');saved=true;
         let g=await game();const blank=g.puzzle.givens.map((v,i)=>!v?i:-1).filter(i=>i>=0),i=blank[0];
         assert.equal(g.initial_notes_available,true);
         // Selection, lookup, tool changes, fit and checks are navigation, not progress.

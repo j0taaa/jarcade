@@ -272,6 +272,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-feedback.c
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-taps.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-notes.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-hard.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-mixed.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -504,7 +505,8 @@ Rules and CPU logic live in `src/table_tennis.rs`; the shared vector renderer an
 ## Sudoku
 
 Choose **Single player → Sudoku**, or open `?game=sudoku`. Generate a new
-**Classic, Killer, V & X, Kropki, Thermo, or Diagonal** puzzle at **Easy, Medium,
+**Classic, Killer, V & X, Kropki, Thermo, or Diagonal** puzzle, or combine
+constraints (for example **XV + Diagonal**), at **Easy, Medium,
 or Hard**, or resume the last saved game. The board and number pad take their
 layout cues from [SudokuPad / Cracking the Cryptic](https://sudokupad.com/).
 
@@ -530,8 +532,24 @@ run in small cancellable steps; idle screens remain event-driven. Hints use the
 same expert proof and cache deductions only while visible digits match.
 The technique definitions follow [HoDoKu's guide](https://hodoku.sourceforge.net/en/techniques.php).
 
-Killer cages cover the grid, stay connected and never repeat a digit. XV and
-Kropki use **positive clues only**: unmarked edges have no extra rule.
+Select multiple rule cards; Classic clears the extra rules. The **XV** and
+**Dots** controls independently cycle Off → Partial → Full. Partial markings
+restrict only marked edges. Full XV excludes sums of 5/10 on edges without V/X;
+full dots exclude consecutive/double digits on edges without a dot. A 1/2 pair
+can carry either white or black. XV and dots can share an edge and are drawn
+side by side; their absent-mark restrictions remain independent.
+
+Hard greedily attempts to remove every starting digit and optional partial mark,
+cage total and thermometer. Each removal requires an independent uniqueness
+proof; at least one clue remains for each selected visible rule. Full markings
+are mandatory and are never removed. Killer cages stay connected and have no
+repeats; uncaged cells follow normal Sudoku. This aims for locally sparse clues
+within the search budget, not a claimed global mathematical minimum. Dense full
+combinations can supply too much information to qualify as expert. After 256
+failed candidates, generation offers an edit/retry message and preserves the
+saved puzzle, rather than returning an easy puzzle or searching forever.
+Older single-mode saves preserve their original full cage coverage and partial
+marking semantics.
 Thermometers increase strictly from bulb to tip; Diagonal adds both diagonals.
 The in-game rules explain each mode.
 

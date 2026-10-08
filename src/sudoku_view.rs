@@ -3,7 +3,9 @@ use jarcade::{
     board_pan::{BoardPan, PinchZoom},
     feedback::Pulse,
     layout::touch_point,
-    sudoku::{Difficulty, Game, Generator, Mark, Puzzle, Relation, Tool, Variant, bit},
+    sudoku::{
+        ClueMode, Difficulty, Game, Generator, Mark, Puzzle, Relation, Rules, Tool, Variant, bit,
+    },
 };
 use macroquad::prelude::*;
 mod art;
@@ -84,6 +86,7 @@ fn wrap(ui: &Ui, text: &str, r: Rect, size: f32, colour: Color) {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Modal {
+    GenerationFailed,
     None,
     Help,
     Reset,
@@ -101,7 +104,7 @@ pub struct SudokuPage {
     pub revision: u64,
     drawn_revision: u64,
     configuring: bool,
-    variant: Variant,
+    rules: Rules,
     difficulty: Difficulty,
     tool: Tool,
     samples: Vec<Puzzle>,
@@ -126,7 +129,7 @@ pub struct SudokuPage {
 }
 impl SudokuPage {
     pub fn new(game: Option<Game>) -> Self {
-        let variant = game.as_ref().map_or(Variant::Classic, |g| g.puzzle.variant);
+        let rules = game.as_ref().map_or(Rules::default(), |g| g.puzzle.rules());
         let difficulty = game
             .as_ref()
             .map_or(Difficulty::Easy, |g| g.puzzle.difficulty);
@@ -135,7 +138,7 @@ impl SudokuPage {
             revision: 0,
             drawn_revision: 0,
             configuring: true,
-            variant,
+            rules,
             difficulty,
             tool: Tool::Digit,
             samples: Variant::ALL
@@ -248,7 +251,11 @@ impl SudokuPage {
     }
     fn start(&mut self) {
         self.cancel_gesture();
-        self.generator = Some(Generator::new(crate::seed(), self.variant, self.difficulty));
+        self.generator = Some(Generator::with_rules(
+            crate::seed(),
+            self.rules,
+            self.difficulty,
+        ));
         self.revision += 1;
     }
     fn resume(&mut self) {
@@ -267,6 +274,9 @@ impl SudokuPage {
         art::draw_board(ui, p, marks, art::Highlights::default(), r, true);
     }
     fn focused_label(&self, i: usize) -> Option<String> {
+        if self.modal == Modal::GenerationFailed {
+            return (i == 0).then(|| "Edit rules".into());
+        }
         if self.modal == Modal::Help {
             return (i == 0).then(|| "Got it".into());
         }
@@ -281,15 +291,40 @@ impl SudokuPage {
         }
         if self.configuring {
             if i < 8 {
-                return Some(Variant::ALL[i - 2].name().into());
+                let v = Variant::ALL[i - 2];
+                return Some(if v == Variant::Classic {
+                    "Classic: clear extra rules".into()
+                } else {
+                    format!(
+                        "Toggle {}: {}",
+                        v.name(),
+                        if self.rules.contains(v) {
+                            "selected"
+                        } else {
+                            "off"
+                        }
+                    )
+                });
             }
-            if i < 11 {
-                return Some(Difficulty::ALL[i - 8].name().into());
+            if i < 10 {
+                return Some(format!(
+                    "{} markings: {}. Cycle Off, Partial, Full",
+                    if i == 8 { "XV" } else { "Dots" },
+                    if i == 8 {
+                        self.rules.xv
+                    } else {
+                        self.rules.kropki
+                    }
+                    .name()
+                ));
             }
-            if i == 11 {
+            if i < 13 {
+                return Some(Difficulty::ALL[i - 10].name().into());
+            }
+            if i == 13 {
                 return Some("New puzzle".into());
             }
-            if i == 12 {
+            if i == 14 {
                 return Some("Resume saved puzzle".into());
             }
         } else {
@@ -316,10 +351,12 @@ impl SudokuPage {
         None
     }
     pub fn announcement(&self, focus: Option<usize>) -> String {
-        let mut s = if self.modal == Modal::Help {
+        let mut s = if self.modal == Modal::GenerationFailed {
+            "Jarcade. Sudoku. No expert puzzle found. Try partial markings, fewer rules, or retry. Saved progress is preserved. Edit rules.".into()
+        } else if self.modal == Modal::Help {
             format!(
                 "Jarcade. Sudoku. Rules. {} Space switches Digit and Corner notes. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap a selected cell to deselect; double-tap a cell with one distinct pencil-note digit to fill it. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. Before the first edit, N or the magic wand fills starting notes using row, column and box digits only, ignoring variant rules and deductions. It disappears after use or an edit. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
-                self.variant.rules().join(" ")
+                self.rules.explanation()
             )
         } else if self.modal == Modal::Reset {
             "Jarcade. Sudoku. Clear this puzzle? Undo can restore the marks. Cancel or Clear."
@@ -327,13 +364,13 @@ impl SudokuPage {
         } else if self.generator.is_some() {
             format!(
                 "Jarcade. Sudoku. Generating {} {} puzzle. Verifying a unique logical solution.",
-                self.variant.name(),
+                self.rules.name(),
                 self.difficulty.name()
             )
         } else if self.configuring {
             format!(
                 "Jarcade. Sudoku. Choose a variant. {}. Difficulty {}. New puzzle{}. Every puzzle has one logical solution.",
-                self.variant.name(),
+                self.rules.name(),
                 self.difficulty.name(),
                 if self.game.is_some() {
                     " or resume saved puzzle"
@@ -344,7 +381,7 @@ impl SudokuPage {
         } else if let Some(g) = &self.game {
             format!(
                 "Jarcade. Sudoku. {}. {}. {} mode. {} of 81 filled. Selected cells: {}. {} {}",
-                g.puzzle.variant.name(),
+                g.puzzle.name(),
                 g.puzzle.difficulty.name(),
                 self.tool.name(),
                 g.filled(),
@@ -432,7 +469,22 @@ impl SudokuPage {
             );
         } else {
             ui.centered(
-                &format!("{} · {}", self.variant.name(), self.difficulty.name()),
+                &format!(
+                    "{} · {}",
+                    if self.rules.name().chars().count() > 28 {
+                        format!(
+                            "{} rules",
+                            Variant::ALL
+                                .into_iter()
+                                .skip(1)
+                                .filter(|&v| self.rules.contains(v))
+                                .count()
+                        )
+                    } else {
+                        self.rules.name()
+                    },
+                    self.difficulty.name()
+                ),
                 Rect::new(54., 36., screen_width() - 108., 19.),
                 11.,
                 ui.theme.muted,
@@ -450,14 +502,13 @@ impl SudokuPage {
             2
         };
         let rows = 6 / cols;
-        let gap = 10.;
+        let gap = if compact { 6. } else { 10. };
         let cw = (w - gap * (cols - 1) as f32) / cols as f32;
         let top = if compact { 64. } else { 80. };
-        let card_h = ((screen_height() - top - 166. - gap * (rows - 1) as f32) / rows as f32)
-            .clamp(
-                if compact { 56. } else { 68. },
-                if compact { 100. } else { 156. },
-            );
+        let card_h = ((screen_height() - top - 166. - gap * rows as f32) / rows as f32).clamp(
+            if compact { 44. } else { 52. },
+            if compact { 100. } else { 156. },
+        );
         for (i, v) in Variant::ALL.into_iter().enumerate() {
             let r = Rect::new(
                 x + (i % cols) as f32 * (cw + gap),
@@ -465,7 +516,7 @@ impl SudokuPage {
                 cw,
                 card_h,
             );
-            let active = v == self.variant;
+            let active = self.rules.contains(v);
             bordered(
                 r,
                 14.,
@@ -505,11 +556,45 @@ impl SudokuPage {
                 true,
             );
             if ui.hit(r) {
-                self.variant = v;
+                self.rules.toggle(v);
                 self.revision += 1;
             }
         }
         let y = top + rows as f32 * (card_h + gap) + 6.;
+        for i in 0..2 {
+            let r = Rect::new(x + i as f32 * (w + 10.) / 2., y, (w - 10.) / 2., 44.);
+            let mode = if i == 0 {
+                self.rules.xv
+            } else {
+                self.rules.kropki
+            };
+            let clicked = button(ui, r, false);
+            ui.centered(
+                &format!("{} · {}", if i == 0 { "XV" } else { "Dots" }, mode.name()),
+                r,
+                13.,
+                if mode.enabled() {
+                    ui.theme.accent
+                } else {
+                    ui.theme.muted
+                },
+                mode.enabled(),
+            );
+            if clicked {
+                let next = match mode {
+                    ClueMode::Off => ClueMode::Partial,
+                    ClueMode::Partial => ClueMode::Full,
+                    ClueMode::Full => ClueMode::Off,
+                };
+                if i == 0 {
+                    self.rules.xv = next;
+                } else {
+                    self.rules.kropki = next;
+                }
+                self.revision += 1;
+            }
+        }
+        let y = y + 50.;
         let difficulty = Rect::new(x, y, w, 42.);
         for (i, d) in Difficulty::ALL.into_iter().enumerate() {
             let r = Rect::new(x + i as f32 * w / 3., y, w / 3. - 4., 42.);
@@ -567,12 +652,12 @@ impl SudokuPage {
             let r = Rect::new(new.right() + 10., new.y, new.w, new.h);
             let resume = button(ui, r, false);
             ui.centered("Resume", r, 15., ui.theme.text, true);
-            let same = g.puzzle.variant == self.variant && g.puzzle.difficulty == self.difficulty;
+            let same = g.puzzle.rules() == self.rules && g.puzzle.difficulty == self.difficulty;
             if !same && screen_height() > 600. {
                 ui.centered(
                     &format!(
                         "Saved: {} · {}",
-                        g.puzzle.variant.name(),
+                        g.puzzle.name(),
                         g.puzzle.difficulty.name()
                     ),
                     Rect::new(x, r.bottom() + 12., w, 20.),
@@ -582,7 +667,7 @@ impl SudokuPage {
                 );
             }
             if resume {
-                self.variant = self.game.as_ref().unwrap().puzzle.variant;
+                self.rules = self.game.as_ref().unwrap().puzzle.rules();
                 self.difficulty = self.game.as_ref().unwrap().puzzle.difficulty;
                 self.resume();
                 ui.reset_focus();
@@ -590,7 +675,7 @@ impl SudokuPage {
         }
         if screen_height() > 640. {
             ui.centered(
-                self.variant.subtitle(),
+                "Combine rules. Each selected rule applies.",
                 Rect::new(x, new.bottom() + 42., w, 26.),
                 13.,
                 ui.theme.muted,
@@ -599,11 +684,44 @@ impl SudokuPage {
         }
     }
     fn modal(&mut self, ui: &mut Ui) -> Option<Pulse> {
+        if self.modal == Modal::GenerationFailed {
+            let w = (screen_width() - 24.).min(460.);
+            let r = Rect::new(
+                (screen_width() - w) / 2.,
+                (screen_height() - 220.) / 2.,
+                w,
+                220.,
+            );
+            bordered(r, 20., ui.theme.line, ui.theme.bg);
+            ui.centered(
+                "No expert puzzle found",
+                Rect::new(r.x + 16., r.y + 18., w - 32., 28.),
+                20.,
+                ui.theme.text,
+                true,
+            );
+            wrap(
+                ui,
+                "Try partial markings, fewer rules, or retry. Your saved puzzle is safe.",
+                Rect::new(r.x + 24., r.y + 64., w - 48., 78.),
+                14.,
+                ui.theme.muted,
+            );
+            let close = Rect::new(r.x + 20., r.bottom() - 60., w - 40., 44.);
+            let clicked = button(ui, close, false);
+            ui.centered("Edit rules", close, 14., ui.theme.text, true);
+            if clicked {
+                self.modal = Modal::None;
+                self.revision += 1;
+                ui.reset_focus();
+            }
+            return None;
+        }
         let help = self.modal == Modal::Help;
         let short = help && screen_height() < 450.;
         let w = (screen_width() - 24.).min(if short { 720. } else { 460. });
         let h = if help {
-            (screen_height() - 24.).min(416.)
+            (screen_height() - 24.).min(540.)
         } else {
             190.
         };
@@ -611,7 +729,7 @@ impl SudokuPage {
         bordered(r, 20., ui.theme.line, ui.theme.bg);
         ui.centered(
             if help {
-                self.variant.name()
+                "Rules & controls"
             } else {
                 "Clear this puzzle?"
             },
@@ -621,42 +739,37 @@ impl SudokuPage {
             true,
         );
         if help {
-            let rules = self.variant.rules().join(" ");
+            let rules = self.rules.explanation();
+            let controls = "1–9: enter. Space: digit/corner. Z/X/C/V: tools. Shift/Ctrl: notes. Drag: select. Tap again: deselect. Double-tap a sole note: fill. N/wand: starting notes. Ctrl+Z/Y: undo/redo. Pinch/scroll: zoom. Tap outside, then a number: highlight.";
             if short {
                 let col = (w - 66.) / 2.;
                 wrap(
                     ui,
                     &rules,
                     Rect::new(r.x + 22., r.y + 62., col, h - 132.),
-                    14.,
+                    if rules.len() > 250 { 10. } else { 13. },
                     ui.theme.text,
                 );
                 wrap(
                     ui,
-                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. N/wand: starting notes, before editing. Ctrl+Z/Y: undo/redo. Pinch/scroll: zoom. Wrong digits turn red. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights digits and lighter notes.",
+                    controls,
                     Rect::new(r.x + 44. + col, r.y + 62., col, h - 132.),
-                    12.,
+                    11.,
                     ui.theme.muted,
                 );
             } else {
+                let rule_h = if rules.len() > 250 { 240_f32 } else { 144. }.min(h - 244.);
                 wrap(
                     ui,
                     &rules,
-                    Rect::new(r.x + 22., r.y + 62., w - 44., 110.),
-                    15.,
+                    Rect::new(r.x + 22., r.y + 62., w - 44., rule_h),
+                    if rules.len() > 250 { 12. } else { 15. },
                     ui.theme.text,
                 );
                 wrap(
                     ui,
-                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. N/wand: starting notes, before editing. Ctrl+Z/Y: undo/redo.",
-                    Rect::new(r.x + 22., r.y + 172., w - 44., 108.),
-                    12.,
-                    ui.theme.muted,
-                );
-                wrap(
-                    ui,
-                    "Pinch/scroll: zoom; drag a zoomed board to pan. Wrong digits turn red. Tap outside or Ctrl+Shift+A to deselect, then 1–9 highlights digits and lighter notes.",
-                    Rect::new(r.x + 22., r.y + 278., w - 44., 70.),
+                    controls,
+                    Rect::new(r.x + 22., r.y + 78. + rule_h, w - 44., h - rule_h - 156.),
                     12.,
                     ui.theme.muted,
                 );
@@ -1369,9 +1482,18 @@ impl SudokuPage {
                 self.generator = None;
                 self.revision += 1;
             } else if done {
-                self.game = Some(Game::new(self.generator.take().unwrap().finish()));
-                self.dirty = true;
-                self.resume();
+                match self.generator.take().unwrap().try_finish() {
+                    Ok(puzzle) => {
+                        self.game = Some(Game::new(puzzle));
+                        self.dirty = true;
+                        self.resume();
+                    }
+                    Err(_) => {
+                        self.modal = Modal::GenerationFailed;
+                        self.revision += 1;
+                    }
+                }
+                ui.reset_focus();
             }
             return None;
         }

@@ -107,6 +107,14 @@ impl Logic<'_> {
                 "The marked pair fixes this digit",
             );
         }
+        for (a, b, xv, dots) in self.puzzle.negative_pairs() {
+            self.pair(
+                a,
+                b,
+                |x, y| Puzzle::unmarked_accepts(x, y, xv, dots),
+                "Full marking: this unmarked edge excludes the relationship",
+            );
+        }
         for thermo in &self.puzzle.thermos {
             for (j, &i) in thermo.iter().enumerate() {
                 let min = j as u8 + 1;

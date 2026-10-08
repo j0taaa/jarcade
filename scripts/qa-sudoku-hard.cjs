@@ -15,13 +15,13 @@ const base=process.env.JARCADE_QA_URL||'http://127.0.0.1:8092';
    const key=async k=>{await p.keyboard.press(k);await p.waitForTimeout(75);};const tap=async xy=>{await p.touchscreen.tap(...xy);await p.waitForTimeout(80);};
    await p.goto(`${base}/?game=sudoku`);await ready('Choose a variant');await tap(setup(w,h).new);await ready('Digit mode');
    // A pre-upgrade Hard save still loads unchanged; new rating rules apply to new puzzles.
-   const old=JSON.parse(await raw());old.game.puzzle.difficulty='Hard';delete old.game.puzzle.hard_rating;const legacy=JSON.stringify(old);
+   const old=JSON.parse(await raw());old.game.puzzle.difficulty='Hard';delete old.game.puzzle.hard_rating;delete old.game.puzzle.rules;const legacy=JSON.stringify(old);
    await p.evaluate(data=>localStorage.setItem('jarcade.sudoku.v1',data),legacy);await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Hard. Digit mode');assert.equal(await raw(),legacy);
-   await key('Escape');await ready('Choose a variant');await tap(setup(w,h,true).variant(5));await tap(setup(w,h,true).difficulty(2));
+   await key('Escape');await ready('Choose a variant');await tap(setup(w,h,true).variant(0));await tap(setup(w,h,true).variant(5));await tap(setup(w,h,true).difficulty(2));
    await p.touchscreen.tap(...setup(w,h,true).new);await ready('Generating Diagonal Hard');const cancelStart=Date.now();await key('Escape');await ready('Choose a variant');assert(Date.now()-cancelStart<1500,'Proof work must let Cancel respond promptly');assert.equal(await raw(),legacy);
    const variants=w===390&&!saver&&process.env.JARCADE_QA_FOCUS!=='smoke'?[0,1,2,3,4,5]:[w===568?4:0];
    for(const variant of variants){
-    const s=setup(w,h,true);await tap(s.variant(variant));await tap(s.difficulty(2));const start=Date.now();await tap(s.new);await ready('Hard. Digit mode');const g=await game(),rating=g.puzzle.hard_rating;
+    const s=setup(w,h,true);await tap(s.variant(0));if(variant!==0)await tap(s.variant(variant));await tap(s.difficulty(2));const start=Date.now();await tap(s.new);await ready('Hard. Digit mode');const g=await game(),rating=g.puzzle.hard_rating;
     assert(rating,'Every newly generated Hard puzzle is rated');assert(rating.stalled_cells>=45);assert(rating.advanced_steps>=5);assert(rating.forcing_steps>=3);assert(rating.longest_chain>=30);assert.equal(g.puzzle.difficulty,'Hard');assert.equal(g.puzzle.variant,['Classic','Killer','Xv','Kropki','Thermo','Diagonal'][variant]);
     assert(g.puzzle.givens.every((v,i)=>!v||v===g.puzzle.solution[i]));assert.equal(g.hints,0);assert.equal(g.initial_notes_available,true);
     console.log(`${g.puzzle.variant} Hard: ${JSON.stringify(rating)}, generation ${Date.now()-start}ms`);
