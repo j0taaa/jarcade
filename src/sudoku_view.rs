@@ -296,7 +296,7 @@ impl SudokuPage {
     pub fn announcement(&self, focus: Option<usize>) -> String {
         let mut s = if self.modal == Modal::Help {
             format!(
-                "Jarcade. Sudoku. Rules. {} Space cycles Digit, Corner, Centre and Colour. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
+                "Jarcade. Sudoku. Rules. {} Space cycles Digit, Corner, Centre and Colour. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
                 self.variant.rules().join(" ")
             )
         } else if self.modal == Modal::Reset {
@@ -356,6 +356,20 @@ impl SudokuPage {
             s.push_str(&format!(
                 " Highlighted digit {n}: {}.",
                 if cells.is_empty() { "none" } else { &cells }
+            ));
+            let candidates = g
+                .candidate_cells(n)
+                .iter()
+                .map(|i| format!("r{}c{}", i / 9 + 1, i % 9 + 1))
+                .collect::<Vec<_>>()
+                .join(", ");
+            s.push_str(&format!(
+                " Candidate digit {n}: {}. Pencil notes use a lighter highlight.",
+                if candidates.is_empty() {
+                    "none"
+                } else {
+                    &candidates
+                }
             ));
         }
         if let Some(label) = focus.and_then(|i| self.focused_label(i)) {
@@ -597,7 +611,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "1–9: digit. Space: next tool. Z / X / C / V: digit / corner / centre / colour. Shift: corner; Ctrl: centre. Drag selects cells. Ctrl + Z / Y: undo / redo. Pinch or scroll: zoom. Wrong digits turn red immediately. Tap outside or Ctrl+Shift+A to deselect. With none selected, 1–9 highlights visible digits.",
+                    "1–9: digit. Space: next tool. Z / X / C / V: digit / corner / centre / colour. Shift: corner; Ctrl: centre. Drag selects cells. Ctrl + Z / Y: undo / redo. Pinch or scroll: zoom. Wrong digits turn red immediately. Tap outside or Ctrl+Shift+A to deselect. With none selected, 1–9 highlights digits; pencil notes use a lighter shade.",
                     Rect::new(r.x + 44. + col, r.y + 62., col, h - 132.),
                     12.,
                     ui.theme.muted,
@@ -619,7 +633,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "Pinch or scroll to zoom. Drag to pan when zoomed. Wrong digits turn red immediately. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights matching digits.",
+                    "Pinch or scroll to zoom. Drag to pan when zoomed. Wrong digits turn red immediately. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights digits and, more lightly, pencil notes.",
                     Rect::new(r.x + 22., r.y + 278., w - 44., 70.),
                     12.,
                     ui.theme.muted,
@@ -692,8 +706,9 @@ impl SudokuPage {
                 || self.mistake_message(),
                 |n| {
                     format!(
-                        "Showing {n} · {} revealed cells",
-                        self.game.as_ref().map_or(0, |g| g.revealed_cells(n).len())
+                        "Showing {n} · {} filled · {} notes",
+                        self.game.as_ref().map_or(0, |g| g.revealed_cells(n).len()),
+                        self.game.as_ref().map_or(0, |g| g.candidate_cells(n).len())
                     )
                 },
             );
@@ -1260,6 +1275,9 @@ impl SudokuPage {
                     matches: &self
                         .highlighted_digit
                         .map_or_else(Vec::new, |n| g.revealed_cells(n)),
+                    candidates: &self
+                        .highlighted_digit
+                        .map_or_else(Vec::new, |n| g.candidate_cells(n)),
                 },
                 grid,
                 false,
@@ -1296,6 +1314,31 @@ mod tests {
             assert_eq!(page.highlighted_digit, None);
         }
         assert!(!page.game.as_mut().unwrap().undo());
+    }
+    #[test]
+    fn no_selection_lookup_lists_note_candidates_separately_and_preserves_progress() {
+        let mut page = page();
+        let g = page.game.as_mut().unwrap();
+        let cells: Vec<_> = (0..81).filter(|&i| g.puzzle.givens[i] == 0).collect();
+        g.enter(&[cells[0]], 4, Tool::Corner);
+        g.enter(&[cells[1]], 4, Tool::Centre);
+        let before = g.encode();
+        page.enter_number(4, Tool::Digit);
+        let candidates = format!(
+            "Candidate digit 4: r{}c{}, r{}c{}.",
+            cells[0] / 9 + 1,
+            cells[0] % 9 + 1,
+            cells[1] / 9 + 1,
+            cells[1] % 9 + 1,
+        );
+        assert!(page.announcement(None).contains(&candidates));
+        assert!(page.message.contains("2 notes"));
+        assert!(!page.dirty);
+        assert!(page.selected.is_empty());
+        assert_eq!(page.game.as_ref().unwrap().encode(), before);
+        page.enter_number(4, Tool::Digit);
+        assert!(!page.announcement(None).contains("Candidate digit"));
+        assert_eq!(page.game.as_ref().unwrap().encode(), before);
     }
     #[test]
     fn wrong_digits_warn_immediately_and_undo_and_resume_refresh_feedback() {

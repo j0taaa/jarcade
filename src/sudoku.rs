@@ -374,6 +374,23 @@ impl Game {
             .filter_map(|(i, &v)| (v == number).then_some(i))
             .collect()
     }
+    /// Player-marked possibilities in empty cells, from either pencil-note style.
+    /// This is a visual search, not a deduction from the hidden solution.
+    pub fn candidate_cells(&self, number: u8) -> Vec<usize> {
+        if !(1..=9).contains(&number) {
+            return Vec::new();
+        }
+        self.puzzle
+            .givens
+            .iter()
+            .zip(&self.marks)
+            .enumerate()
+            .filter_map(|(i, (&given, mark))| {
+                (given == 0 && mark.value == 0 && (mark.corner | mark.centre) & bit(number) != 0)
+                    .then_some(i)
+            })
+            .collect()
+    }
     pub fn filled(&self) -> usize {
         self.values().iter().filter(|&&d| d > 0).count()
     }
@@ -801,6 +818,30 @@ mod tests {
         assert!(g.revealed_cells(1).contains(&hidden));
         assert!(g.revealed_cells(0).is_empty());
         assert!(g.revealed_cells(10).is_empty());
+    }
+    #[test]
+    fn candidate_search_combines_both_note_styles_without_revealing_or_editing_answers() {
+        let mut g = game();
+        let cells: Vec<_> = (0..81).filter(|&i| g.puzzle.givens[i] == 0).collect();
+        g.enter(&[cells[0], cells[2]], 2, Tool::Corner);
+        g.enter(&[cells[1], cells[2]], 2, Tool::Centre);
+        g.enter(&[cells[3]], 3, Tool::Centre);
+        g.enter(&[cells[4]], 2, Tool::Colour);
+        let before = g.encode();
+        assert_eq!(g.candidate_cells(2), cells[..3]);
+        assert_eq!(g.candidate_cells(3), vec![cells[3]]);
+        assert!(g.candidate_cells(0).is_empty());
+        assert!(g.candidate_cells(10).is_empty());
+        assert_eq!(g.encode(), before);
+        let mut restored = Game::restore(&before).unwrap();
+        assert_eq!(restored.candidate_cells(2), cells[..3]);
+        restored.enter(&[cells[2]], 2, Tool::Digit);
+        assert_eq!(restored.candidate_cells(2), cells[..2]);
+        assert!(restored.revealed_cells(2).contains(&cells[2]));
+        restored.undo();
+        assert_eq!(restored.candidate_cells(2), cells[..3]);
+        restored.erase(&[cells[0]], Tool::Corner);
+        assert_eq!(restored.candidate_cells(2), cells[1..3]);
     }
     #[test]
     fn mistake_feedback_tracks_correction_undo_redo_and_restore_in_every_variant() {

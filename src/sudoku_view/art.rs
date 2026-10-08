@@ -136,6 +136,7 @@ pub fn tool_icon(ui: &Ui, tool: Tool, r: Rect, active: bool) {
 pub struct Highlights<'a> {
     pub selected: &'a [usize],
     pub matches: &'a [usize],
+    pub candidates: &'a [usize],
     pub mistakes: &'a [usize],
 }
 pub fn draw_board(
@@ -158,6 +159,19 @@ pub fn draw_board(
                 cell.w,
                 cell.h,
                 colour(mark.colour, ui.theme.saver),
+            );
+        }
+        if highlights.candidates.contains(&i) {
+            draw_rectangle(
+                cell.x,
+                cell.y,
+                cell.w,
+                cell.h,
+                if ui.theme.saver {
+                    Color::new(0.43, 0.32, 0.82, 0.13)
+                } else {
+                    color_u8!(246, 242, 255, 255)
+                },
             );
         }
         if highlights.matches.contains(&i) {

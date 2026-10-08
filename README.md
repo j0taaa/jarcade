@@ -522,9 +522,10 @@ tools; **Z / X / C / V** select them directly. **Shift + digit** adds corner
 notes; **Ctrl + digit** adds centre notes. Arrows move selection; Shift/Ctrl
 arrows extend it. **Ctrl + A** selects the whole grid. Tap/click outside the
 board or **Ctrl + Shift + A** to deselect. With no cells selected, a number
-highlights all matching givens and entered digits; hidden answers and pencil
-notes are excluded. Press it again to clear the highlight. This never changes
-progress or undo history. Delete/Backspace/0 erases
+highlights matching givens and entered digits, with a lighter shade for
+empty cells containing that digit in corner or centre pencil notes. Hidden
+answers and unmarked possibilities are excluded. Press it again to clear the
+highlight. This never changes progress or undo history. Delete/Backspace/0 erases
 the current tool. **Ctrl + Z / Y** undo/redo a complete action.
 
 Incorrect digits turn red and show a warning immediately, including after
