@@ -36,8 +36,8 @@ function verify(before,after){
         const s=setup(w,h,saved);await tap(s.variant(0));if(variant!==0)await tap(s.variant(variant));await tap(s.difficulty(1));await tap(s.new);await ready('Digit mode');saved=true;
         let g=await game();const blank=g.puzzle.givens.map((v,i)=>!v?i:-1).filter(i=>i>=0),i=blank[0];
         assert.equal(g.initial_notes_available,true);
-        // Selection, lookup, tool changes, fit and checks are navigation, not progress.
-        await key('4');await tap(l.cell(i));await key('x');await key('z');await tap(l.action(4));await key('k');
+        // Selection, lookup and tool changes are navigation, not progress.
+        await key('4');await tap(l.cell(i));await key('x');await key('z');
         assert.equal((await game()).initial_notes_available,true);
         if(variant===0)await p.screenshot({path:`/tmp/jarcade-sudoku-wand-before-${w}-${saver}.png`});
         const before=await game();

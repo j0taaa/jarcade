@@ -354,7 +354,7 @@ impl SudokuPage {
             if i == 16 && notes_available {
                 return Some("Fill notes: row, column and box only (N)".into());
             }
-            return ["Undo", "Redo", "Check", "Hint", "Fit board", "Reset"]
+            return ["Undo", "Redo", "Hint", "Reset"]
                 .get(i - 16 - usize::from(notes_available))
                 .map(|s| (*s).into());
         }
@@ -960,22 +960,6 @@ impl SudokuPage {
                 }
             }
             2 => {
-                let g = self.game.as_ref()?;
-                self.mistakes = g.mistakes();
-                self.message = if g.won() {
-                    "Beautifully solved.".into()
-                } else if self.mistakes.is_empty() {
-                    "Looking good. Keep going.".into()
-                } else {
-                    format!(
-                        "{} incorrect digit{}. Highlighted on the board.",
-                        self.mistakes.len(),
-                        if self.mistakes.len() == 1 { "" } else { "s" }
-                    )
-                };
-                self.revision += 1;
-            }
-            3 => {
                 if let Some((cell, message)) = self.game.as_mut()?.hint() {
                     self.clear_digit_highlight();
                     self.selected = vec![cell];
@@ -993,17 +977,12 @@ impl SudokuPage {
                     return Some(Pulse::Tap);
                 }
             }
-            4 => {
-                self.pan = BoardPan::default();
-                self.cancel_gesture();
-                self.revision += 1;
-            }
-            5 => {
+            3 => {
                 self.modal = Modal::Reset;
                 self.cancel_gesture();
                 self.revision += 1;
             }
-            6 => {
+            4 => {
                 if !self.game.as_ref()?.can_fill_classic_candidates() {
                     return None;
                 }
@@ -1082,29 +1061,15 @@ impl SudokuPage {
             let fill = button(ui, r, false);
             art::glyph(ui, Glyph::Wand, r);
             if fill {
-                pulse = self.action(6, l).or(pulse);
+                pulse = self.action(4, l).or(pulse);
                 ui.reset_focus();
             }
         }
-        for (i, g) in [
-            Glyph::Undo,
-            Glyph::Redo,
-            Glyph::Check,
-            Glyph::Hint,
-            Glyph::Reset,
-            Glyph::Reset,
-        ]
-        .into_iter()
-        .enumerate()
+        for (i, g) in [Glyph::Undo, Glyph::Redo, Glyph::Hint, Glyph::Reset]
+            .into_iter()
+            .enumerate()
         {
-            let r = l.action(i);
-            let hit = if i == 4 {
-                ui.centered("1:1", r, 13., ui.theme.text, true);
-                ui.hit(r)
-            } else {
-                icon_button(ui, g, r)
-            };
-            if hit {
+            if icon_button(ui, g, l.action(i)) {
                 pulse = self.action(i, l).or(pulse);
             }
         }
@@ -1364,16 +1329,13 @@ impl SudokuPage {
                 pulse = self.changed().or(pulse);
             }
             if key == KeyCode::H {
-                pulse = self.action(3, l).or(pulse);
-            }
-            if key == KeyCode::K {
                 pulse = self.action(2, l).or(pulse);
             }
             if key == KeyCode::R {
-                pulse = self.action(5, l).or(pulse);
+                pulse = self.action(3, l).or(pulse);
             }
             if !command && key == KeyCode::N {
-                pulse = self.action(6, l).or(pulse);
+                pulse = self.action(4, l).or(pulse);
             }
             if let Some((dx, dy)) = match key {
                 KeyCode::Left => Some((-1, 0)),
@@ -1670,7 +1632,7 @@ mod tests {
         page.enter_number(4, Tool::Digit);
         assert!(page.focused_label(16).unwrap().contains("Fill notes"));
         assert_eq!(page.focused_label(17).as_deref(), Some("Undo"));
-        assert!(page.action(6, &l).is_some());
+        assert!(page.action(4, &l).is_some());
         assert!(page.selected.is_empty());
         assert_eq!(page.tool, Tool::Corner);
         assert_eq!(page.highlighted_digit, Some(4));
@@ -1689,11 +1651,11 @@ mod tests {
         assert!(page.announcement(None).contains("Candidate digit 4:"));
         assert_eq!(page.focused_label(16).as_deref(), Some("Undo"));
         let saved = page.game.as_ref().unwrap().encode();
-        assert!(page.action(6, &l).is_none());
+        assert!(page.action(4, &l).is_none());
         assert_eq!(page.game.as_ref().unwrap().encode(), saved);
         page.action(0, &l);
         assert_eq!(page.game.as_ref().unwrap().marks, before);
-        assert!(page.action(6, &l).is_none());
+        assert!(page.action(4, &l).is_none());
         assert_eq!(page.focused_label(16).as_deref(), Some("Undo"));
     }
     #[test]
@@ -1715,7 +1677,7 @@ mod tests {
         let before = page.game.as_ref().unwrap().encode();
         let tool = page.tool;
         let revision = page.revision;
-        assert!(page.action(6, &l).is_none());
+        assert!(page.action(4, &l).is_none());
         assert_eq!(page.game.as_ref().unwrap().encode(), before);
         assert_eq!(page.tool, tool);
         assert_eq!(page.revision, revision);

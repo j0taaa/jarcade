@@ -620,12 +620,13 @@ Erasing or replacing a digit does not recreate previously removed notes.
 
 Incorrect digits turn red and show a warning immediately, including after
 undo/redo or resuming a save. Correcting or erasing them clears the warning.
-**Check (K)** also checks the board; **Hint (H)** explains and enters the
+**Hint (H)** explains and enters the
 next logically forced digit, or points out a contradiction to clear. Notes do
 not constrain the hint solver. Givens cannot be changed. Reset is confirmed
 and undoable. A full grid wins only if every Sudoku and variant rule holds.
-Pinch or scroll over the board to zoom, drag a zoomed board to pan, and use
-**1:1** to fit it again. Zoom keeps native display resolution.
+Pinch or scroll over the board to zoom and drag a zoomed board to pan.
+Zoom keeps native display resolution. The bottom row contains Undo, Redo,
+Hint and Reset.
 
 The current puzzle, marks, colours and undo/redo history persist in browser
 storage or `sudoku.json` in the OS app-data folder. Malformed or ambiguous

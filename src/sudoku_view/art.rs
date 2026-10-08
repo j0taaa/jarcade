@@ -25,7 +25,6 @@ pub enum Glyph {
     Undo,
     Redo,
     Erase,
-    Check,
     Hint,
     Reset,
     Wand,
@@ -81,10 +80,6 @@ pub fn glyph(ui: &Ui, g: Glyph, r: Rect) {
             }
             line(vec2(-2., 3.), vec2(3., -2.));
             line(vec2(-10., 11.), vec2(11., 11.));
-        }
-        Glyph::Check => {
-            line(vec2(-9., 0.), vec2(-3., 6.));
-            line(vec2(-3., 6.), vec2(10., -7.));
         }
         Glyph::Hint => {
             draw_circle_lines(c.x, c.y - 3., 6., 1.7, ink);

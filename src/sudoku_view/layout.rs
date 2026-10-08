@@ -107,7 +107,7 @@ impl Layout {
         Rect::new(self.pad.x + 2. * (u + 6.), self.pad.y + 3. * (u + 6.), u, u)
     }
     pub fn action(&self, i: usize) -> Rect {
-        let u = self.actions.w / 6.;
+        let u = self.actions.w / 4.;
         Rect::new(
             self.actions.x + i as f32 * u,
             self.actions.y,
