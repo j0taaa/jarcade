@@ -1,4 +1,5 @@
-use super::{Cage, Difficulty, Edge, Puzzle, Relation, Variant, bit, logical_solve};
+use super::solver::{LogicalProof, UniquenessProof};
+use super::{Cage, Difficulty, Edge, HardRating, Puzzle, Relation, Variant, bit, logical_solve};
 struct Rng(u64);
 impl Rng {
     fn next(&mut self) -> u64 {
@@ -18,13 +19,18 @@ impl Rng {
         }
     }
 }
-/// One clue-removal attempt per step keeps web and phone input responsive.
+/// A resumable logical proof keeps web and phone input responsive.
 pub struct Generator {
     puzzle: Puzzle,
     order: Vec<usize>,
     at: usize,
     target: usize,
     done: bool,
+    proof: Option<LogicalProof>,
+    pending: Option<(usize, u8)>,
+    uniqueness: Option<UniquenessProof>,
+    base_seed: u64,
+    attempts: u64,
 }
 impl Generator {
     pub fn new(seed: u64, variant: Variant, difficulty: Difficulty) -> Self {
@@ -40,6 +46,7 @@ impl Generator {
             edges: Vec::new(),
             thermos: Vec::new(),
             effort: 0,
+            hard_rating: None,
         };
         match variant {
             Variant::Killer => make_cages(&mut puzzle, &mut rng),
@@ -75,56 +82,120 @@ impl Generator {
         let mut order: Vec<_> = (0..81).collect();
         rng.shuffle(&mut order);
         let targets = match variant {
-            Variant::Killer => [28, 16, 4],
-            Variant::Kropki => [36, 26, 16],
-            Variant::Xv => [42, 32, 24],
-            Variant::Thermo => [40, 30, 22],
-            Variant::Diagonal => [40, 30, 24],
-            Variant::Classic => [44, 34, 26],
+            Variant::Killer => [28, 16],
+            Variant::Kropki => [36, 26],
+            Variant::Xv => [42, 32],
+            Variant::Thermo => [40, 30],
+            Variant::Diagonal => [40, 30],
+            Variant::Classic => [44, 34],
         };
         Self {
             puzzle,
             order,
             at: 0,
-            target: targets[difficulty.level() as usize],
+            target: if difficulty == Difficulty::Hard {
+                0
+            } else {
+                targets[difficulty.level() as usize]
+            },
             done: false,
+            proof: None,
+            pending: None,
+            uniqueness: None,
+            base_seed: seed,
+            attempts: 0,
         }
     }
+    pub fn attempts(&self) -> u64 {
+        self.attempts + 1
+    }
     pub fn progress(&self) -> f32 {
-        self.at as f32 / 81.
+        if self.done {
+            1.
+        } else {
+            self.at as f32 / 81. * 0.9
+        }
     }
     pub fn step(&mut self) -> bool {
         if self.done {
             return true;
         }
+        if let Some(search) = &mut self.uniqueness {
+            if !search.step() {
+                return false;
+            }
+            let unique = self.uniqueness.take().unwrap().count() == Some(1);
+            let (i, old) = self.pending.take().unwrap();
+            if !unique {
+                self.puzzle.givens[i] = old;
+            }
+            return false;
+        }
+        if let Some(proof) = &mut self.proof {
+            if !proof.step() {
+                return false;
+            }
+            let result = self.proof.take().unwrap().result();
+            if let Some((i, old)) = self.pending.take() {
+                if !result.solved {
+                    self.puzzle.givens[i] = old;
+                }
+                return false;
+            }
+            let rating = (self.puzzle.difficulty == Difficulty::Hard).then(|| {
+                let simple = logical_solve(&self.puzzle, &self.puzzle.givens, 2);
+                HardRating {
+                    stalled_cells: simple.masks.iter().filter(|m| m.count_ones() > 1).count(),
+                    advanced_steps: result.advanced_steps,
+                    forcing_steps: result.forcing_steps,
+                    longest_chain: result.longest_chain,
+                }
+            });
+            let qualifies = result.solved && rating.as_ref().is_none_or(HardRating::qualifies);
+            if qualifies {
+                self.puzzle.hard_rating = rating;
+                self.puzzle.effort = result.effort;
+                self.puzzle.seed = self.base_seed;
+                self.done = true;
+                return true;
+            }
+            // A full grid isn't Hard just because it has few givens. Discard
+            // easy or unproved candidates rather than silently downgrading.
+            let base_seed = self.base_seed;
+            let attempts = self.attempts + 1;
+            let seed = base_seed.wrapping_add(attempts.wrapping_mul(0x9e3779b97f4a7c15));
+            *self = Self::new(seed, self.puzzle.variant, self.puzzle.difficulty);
+            self.base_seed = base_seed;
+            self.attempts = attempts;
+            return false;
+        }
         if self.at == self.order.len()
             || self.puzzle.givens.iter().filter(|&&v| v > 0).count() <= self.target
         {
-            self.puzzle.effort = logical_solve(
-                &self.puzzle,
-                &self.puzzle.givens,
+            self.proof = Some(LogicalProof::new(
+                self.puzzle.clone(),
+                self.puzzle.givens.clone(),
                 self.puzzle.difficulty.level(),
-            )
-            .effort;
-            self.done = true;
-            return true;
+            ));
+            return false;
         }
         let i = self.order[self.at];
         self.at += 1;
         let old = self.puzzle.givens[i];
         self.puzzle.givens[i] = 0;
-        // Every accepted removal has a full logical proof of the unique solution.
-        if !logical_solve(
-            &self.puzzle,
-            &self.puzzle.givens,
-            self.puzzle.difficulty.level(),
-        )
-        .solved
-        {
-            self.puzzle.givens[i] = old;
+        self.pending = Some((i, old));
+        if self.puzzle.difficulty == Difficulty::Hard {
+            self.uniqueness = Some(UniquenessProof::new(self.puzzle.clone(), 2_000));
+        } else {
+            self.proof = Some(LogicalProof::new(
+                self.puzzle.clone(),
+                self.puzzle.givens.clone(),
+                self.puzzle.difficulty.level(),
+            ));
         }
         false
     }
+
     pub fn finish(mut self) -> Puzzle {
         while !self.step() {}
         self.puzzle

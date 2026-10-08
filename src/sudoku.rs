@@ -115,7 +115,7 @@ impl Difficulty {
         match self {
             Self::Easy => 0,
             Self::Medium => 1,
-            Self::Hard => 2,
+            Self::Hard => 3,
         }
     }
 }
@@ -148,6 +148,21 @@ pub struct Cage {
     pub sum: u8,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HardRating {
+    pub stalled_cells: usize,
+    pub advanced_steps: u32,
+    pub forcing_steps: u32,
+    pub longest_chain: u32,
+}
+impl HardRating {
+    pub fn qualifies(&self) -> bool {
+        self.stalled_cells >= 45
+            && self.advanced_steps >= 5
+            && self.forcing_steps >= 3
+            && self.longest_chain >= 30
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Puzzle {
     pub seed: u64,
     pub variant: Variant,
@@ -158,6 +173,8 @@ pub struct Puzzle {
     pub edges: Vec<Edge>,
     pub thermos: Vec<Vec<usize>>,
     pub effort: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hard_rating: Option<HardRating>,
 }
 impl Puzzle {
     pub fn units(&self) -> Vec<Vec<usize>> {
@@ -350,6 +367,8 @@ pub struct Game {
     pub hints: u32,
     #[serde(default = "fresh_notes_available")]
     initial_notes_available: bool,
+    #[serde(skip)]
+    hint_cache: Option<(Vec<u8>, Vec<Deduction>)>,
 }
 fn fresh_notes_available() -> bool {
     true
@@ -363,6 +382,7 @@ impl Game {
             redo: Vec::new(),
             hints: 0,
             initial_notes_available: true,
+            hint_cache: None,
         }
     }
     pub fn values(&self) -> Vec<u8> {
@@ -590,8 +610,21 @@ impl Game {
                 "This digit contradicts the puzzle. Clear it and try again.".into(),
             ));
         }
-        let result = logical_solve(&self.puzzle, &self.values(), 2);
-        let step = result.steps.first()?;
+        let values = self.values();
+        let cached = self
+            .hint_cache
+            .as_ref()
+            .is_some_and(|(snapshot, steps)| *snapshot == values && !steps.is_empty());
+        if !cached {
+            let result =
+                logical_solve(&self.puzzle, &values, self.puzzle.difficulty.level().max(2));
+            self.hint_cache = Some((values, result.steps));
+        }
+        let steps = &mut self.hint_cache.as_mut()?.1;
+        if steps.is_empty() {
+            return None;
+        }
+        let step = steps.remove(0);
         let before = self.marks.clone();
         self.marks[step.cell].value = step.value;
         self.marks[step.cell].corner = 0;
@@ -599,6 +632,10 @@ impl Game {
         self.clear_peer_notes(step.cell, step.value);
         self.finish(before);
         self.hints += 1;
+        let values = self.values();
+        if let Some((snapshot, _)) = &mut self.hint_cache {
+            *snapshot = values;
+        }
         Some((
             step.cell,
             format!(
@@ -705,6 +742,100 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn every_new_hard_puzzle_has_a_real_advanced_logic_floor() {
+        for variant in Variant::ALL {
+            for seed in [1, 17, 333] {
+                let p = Generator::new(seed, variant, Difficulty::Hard).finish();
+                let simple = logical_solve(&p, &p.givens, 2);
+                let proof = logical_solve(&p, &p.givens, 3);
+                assert!(proof.solved, "{variant:?} {seed}");
+                assert!(
+                    !simple.solved,
+                    "Hard cannot be solved by the previous techniques"
+                );
+                assert!(simple.masks.iter().filter(|m| m.count_ones() > 1).count() >= 45);
+                assert!(proof.advanced_steps >= 5);
+                assert!(proof.forcing_steps >= 3);
+                assert!(proof.longest_chain >= 30);
+                let rating = p.hard_rating.as_ref().unwrap();
+                assert!(rating.qualifies());
+                assert_eq!(rating.advanced_steps, proof.advanced_steps);
+                assert_eq!(rating.forcing_steps, proof.forcing_steps);
+                assert_eq!(rating.longest_chain, proof.longest_chain);
+                assert_eq!(p.seed, seed);
+                assert_eq!(
+                    proof.masks.iter().map(|&m| digit(m)).collect::<Vec<_>>(),
+                    p.solution
+                );
+                assert_eq!(solution_count(&p, &p.givens, 10_000), Some(1));
+                let mut changed = p.clone();
+                changed.solution.fill(9);
+                let independently = logical_solve(&changed, &changed.givens, 3);
+                assert_eq!(
+                    independently.masks, proof.masks,
+                    "Never consult the stored answer"
+                );
+            }
+        }
+    }
+    #[test]
+    fn advanced_logic_never_eliminates_a_valid_completion_of_sparse_variant_grids() {
+        for variant in Variant::ALL {
+            for seed in 0..8 {
+                let mut p = Generator::new(seed, variant, Difficulty::Easy).finish();
+                for i in 0..81 {
+                    if !(i as u64 + seed).is_multiple_of(4) {
+                        p.givens[i] = 0;
+                    }
+                }
+                let result = logical_solve(&p, &p.givens, 3);
+                assert!(result.valid, "{variant:?} {seed}");
+                for (&mask, &value) in result.masks.iter().zip(&p.solution) {
+                    assert_ne!(mask & bit(value), 0, "{variant:?} {seed}");
+                }
+                if result.solved {
+                    assert_eq!(solution_count(&p, &p.givens, 10_000), Some(1));
+                }
+            }
+        }
+    }
+    #[test]
+    fn resumable_uniqueness_rejects_multiple_solutions_and_exhausted_budgets() {
+        use super::solver::UniquenessProof;
+        let p = Generator::new(8, Variant::Classic, Difficulty::Easy).finish();
+        let mut proof = UniquenessProof::new(p.clone(), 10_000);
+        while !proof.step() {}
+        assert_eq!(proof.count(), Some(1));
+        let mut exhausted = UniquenessProof::new(p.clone(), 0);
+        while !exhausted.step() {}
+        assert_eq!(exhausted.count(), None);
+        let mut blank = p;
+        blank.givens.fill(0);
+        let mut proof = UniquenessProof::new(blank, 10_000);
+        while !proof.step() {}
+        assert_eq!(proof.count(), Some(2));
+    }
+    #[test]
+    fn hard_hints_cache_only_the_current_visible_state_and_survive_edits() {
+        let p = Generator::new(1, Variant::Classic, Difficulty::Hard).finish();
+        let mut g = Game::new(p);
+        let (cell, _) = g.hint().unwrap();
+        assert!(g.hint_cache.as_ref().unwrap().1.len() > 1);
+        assert_eq!(g.hint_cache.as_ref().unwrap().0, g.values());
+        let save = g.encode();
+        assert!(!save.contains("hint_cache"));
+        let mut restored = Game::restore(&save).unwrap();
+        assert!(restored.hint_cache.is_none());
+        let next = g.hint().unwrap().0;
+        assert_eq!(restored.hint().unwrap().0, next);
+        g.undo();
+        assert_eq!(g.hint().unwrap().0, next);
+        g.enter(&[cell], g.puzzle.solution[cell] % 9 + 1, Tool::Digit);
+        let before = g.marks.clone();
+        assert_eq!(g.hint().unwrap().0, cell);
+        assert_eq!(g.marks, before);
     }
     #[test]
     fn seed_is_reproducible_and_new_seeds_produce_new_games() {

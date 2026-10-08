@@ -1316,17 +1316,32 @@ impl SudokuPage {
             return self.modal(ui);
         }
         if let Some(generator) = self.generator.as_mut() {
-            let done = generator.step();
+            let start = get_time();
+            let mut done = false;
+            for _ in 0..64 {
+                done = generator.step();
+                if done || get_time() - start >= 0.003 {
+                    break;
+                }
+            }
             let progress = generator.progress();
             ui.centered(
-                "Making your puzzle",
+                if self.difficulty == Difficulty::Hard {
+                    "Finding a hard puzzle"
+                } else {
+                    "Making your puzzle"
+                },
                 Rect::new(16., screen_height() * 0.4, screen_width() - 32., 36.),
                 24.,
                 ui.theme.text,
                 true,
             );
             ui.centered(
-                "One solution. All logic.",
+                if self.difficulty == Difficulty::Hard {
+                    "Advanced logic. One solution."
+                } else {
+                    "One solution. All logic."
+                },
                 Rect::new(16., screen_height() * 0.4 + 42., screen_width() - 32., 28.),
                 13.,
                 ui.theme.muted,

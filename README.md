@@ -271,6 +271,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-feedback.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-taps.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-notes.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-hard.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -507,16 +508,32 @@ Choose **Single player → Sudoku**, or open `?game=sudoku`. Generate a new
 or Hard**, or resume the last saved game. The board and number pad take their
 layout cues from [SudokuPad / Cracking the Cryptic](https://sudokupad.com/).
 
-Every grid is original and generated offline. The generator removes clues only
-when its constraint-aware solver can still finish using logical deductions;
-this proves one solution without guessing. Easy uses singles and variant
-constraints; Medium adds locked candidates; Hard adds naked pairs and removes
-more starting digits. Difficulty is algorithmic rather than a human play-test
-rating. Killer cages cover the grid, stay connected and never repeat a digit.
-XV and Kropki use **positive clues only**: unmarked edges have no extra rule.
+Every grid is original and generated offline. Easy uses singles and variant
+constraints; Medium adds locked candidates. **Hard targets expert, long-session
+solves**: it uses hidden/naked subsets, X-Wings, Swordfish and bounded forcing
+nets, and rejects any candidate below the difficulty floor. At least **45 cells**
+must remain unresolved by the previous solver (singles, variant constraints,
+locked candidates and naked pairs). The full proof must use at least **five
+advanced deductions**, including **three forcing nets**, with an implication
+branch spanning at least **30 linked placements**. The saved `hard_rating`
+records these measurements; it is a technique rating, not a promised solve time.
+Human difficulty still varies, and generated puzzles are not hand-set CTC puzzles.
+Start a **new Hard puzzle** to use the new generator; saved puzzles keep their
+progress and original clues.
+
+A separate bounded search checks uniqueness while removing Hard givens. Before
+acceptance, every puzzle must also have a complete variant-aware logical proof;
+forcing nets commit only consequences shared by all viable candidate branches,
+never a speculative guess or the stored answer. Unproved or easy candidates are
+discarded and regenerated, without an easy fallback. Generation and its proofs
+run in small cancellable steps; idle screens remain event-driven. Hints use the
+same expert proof and cache deductions only while visible digits match.
+The technique definitions follow [HoDoKu's guide](https://hodoku.sourceforge.net/en/techniques.php).
+
+Killer cages cover the grid, stay connected and never repeat a digit. XV and
+Kropki use **positive clues only**: unmarked edges have no extra rule.
 Thermometers increase strictly from bulb to tip; Diagonal adds both diagonals.
-The in-game rules explain each mode. Generation proceeds over input-responsive
-frames, then the page returns to event-driven idle rendering.
+The in-game rules explain each mode.
 
 Tap a cell, then a number, or drag to select a group. Tap a selected cell again
 to deselect it. Double-tap an empty cell with one distinct digit in your corner
