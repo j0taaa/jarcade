@@ -27,3 +27,5 @@
 - Sudoku rules can be combined before generation; XV and Kropki independently offer partial or full markings. Full modes enforce missing-mark exclusions. Hard greedily prunes digits and optional variant clues while preserving uniqueness, visible selected rules and the expert floor; bounded unsuccessful searches return to setup without changing saved progress. Keep legacy single-mode saves compatible.
 
 - Additional combinable Sudoku rules: Arrow, Renban, German Whispers, Region Sum Lines, Palindrome, Between Lines, Entropic Lines, Sandwich, Anti-knight, Anti-king, and Non-consecutive. Miracle is the three chess restrictions together. Keep the paged rule picker compact, reserve a gutter for Sandwich totals, and apply the same logical proof, uniqueness, expert floor, cancellation, and save compatibility requirements to every mode.
+
+- Sudoku has a visible in-game Rules button opening a plain popup of only the active puzzle rules, including line colours. Long lists scroll; keep selection and progress unchanged.

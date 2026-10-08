@@ -267,7 +267,7 @@ impl Rules {
     pub fn descriptions(self) -> Vec<String> {
         let mut lines = vec!["Rows, columns and 3 × 3 boxes contain 1–9 once."];
         if self.killer {
-            lines.push("Cages sum to their total, without repeats.");
+            lines.push("Dashed cages sum to their total, without repeats.");
         }
         if self.xv.enabled() {
             lines.push("V pairs sum to 5; X pairs sum to 10.");
@@ -286,13 +286,13 @@ impl Rules {
             });
         }
         if self.thermo {
-            lines.push("Thermometers increase from bulb to tip.");
+            lines.push("Lavender thermometers increase from bulb to tip.");
         }
         if self.diagonal {
-            lines.push("Both long diagonals contain 1–9 once.");
+            lines.push("Both purple long diagonals contain 1–9 once.");
         }
         if self.arrow {
-            lines.push("Arrow shafts sum to the digit in their circle; repeats are allowed by normal rules.");
+            lines.push("Grey arrow shafts sum to the digit in their circle; repeats are allowed by normal rules.");
         }
         if self.renban {
             lines.push("Purple Renban lines contain distinct consecutive digits, in any order.");

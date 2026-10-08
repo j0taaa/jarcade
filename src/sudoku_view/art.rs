@@ -22,7 +22,6 @@ pub fn colour(n: u8, saver: bool) -> Color {
 #[derive(Clone, Copy)]
 pub enum Glyph {
     Back,
-    Help,
     Undo,
     Redo,
     Erase,
@@ -40,10 +39,6 @@ pub fn glyph(ui: &Ui, g: Glyph, r: Rect) {
             line(vec2(8., 0.), vec2(-8., 0.));
             line(vec2(-8., 0.), vec2(-2., -6.));
             line(vec2(-8., 0.), vec2(-2., 6.));
-        }
-        Glyph::Help => {
-            draw_circle_lines(c.x, c.y, 10., 1.6, ink);
-            ui.centered("?", r, 17., ink, true);
         }
         Glyph::Undo | Glyph::Redo => {
             let d = if matches!(g, Glyph::Redo) { -1. } else { 1. };

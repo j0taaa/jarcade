@@ -274,6 +274,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-notes.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-hard.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-mixed.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-variants.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-rules.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -574,7 +575,9 @@ Additional rules:
   move apart. **Non-consecutive:** orthogonal neighbours cannot differ by one.
 - **Miracle:** combines all three preceding restrictions.
 
-The in-game rules paginate descriptions for combined puzzles. Hints explain
+The in-game **Rules** button opens a plain popup listing the current puzzle’s
+constraints, including line colours. Long lists scroll by touch, mouse or
+keyboard; opening and closing the popup preserves selection and progress. Hints explain
 these constraints and immediately incorrect entries work in every mode.
 Line paths and Sandwich totals are derived from a completed grid, then clues
 are removed with the same proof and uniqueness checks as the existing modes.

@@ -106,7 +106,8 @@ pub struct SudokuPage {
     drawn_revision: u64,
     configuring: bool,
     rule_page: usize,
-    help_page: usize,
+    rules_pan: BoardPan,
+    rules_touch_id: Option<u64>,
     rules: Rules,
     difficulty: Difficulty,
     tool: Tool,
@@ -142,7 +143,8 @@ impl SudokuPage {
             drawn_revision: 0,
             configuring: true,
             rule_page: 0,
-            help_page: 0,
+            rules_pan: BoardPan::default(),
+            rules_touch_id: None,
             rules,
             difficulty,
             tool: Tool::Digit,
@@ -191,6 +193,8 @@ impl SudokuPage {
     }
     pub fn cancel_gesture(&mut self) {
         self.pan.cancel();
+        self.rules_pan.cancel();
+        self.rules_touch_id = None;
         self.pinch = PinchZoom::default();
         self.touch_id = None;
         self.mouse_active = false;
@@ -281,9 +285,7 @@ impl SudokuPage {
             return (i == 0).then(|| "Edit rules".into());
         }
         if self.modal == Modal::Help {
-            return ["Previous rules page", "Next rules page", "Got it"]
-                .get(i)
-                .map(|s| (*s).into());
+            return (i == 0).then(|| "Close rules".into());
         }
         if self.modal == Modal::Reset {
             return ["Cancel", "Clear"].get(i).map(|s| (*s).into());
@@ -292,7 +294,7 @@ impl SudokuPage {
             return (i == 0).then(|| "Cancel generation".into());
         }
         if i < 2 {
-            return Some(if i == 0 { "Back" } else { "Rules and controls" }.into());
+            return Some(if i == 0 { "Back" } else { "Puzzle rules" }.into());
         }
         if self.configuring {
             if i < 5 {
@@ -363,8 +365,8 @@ impl SudokuPage {
             "Jarcade. Sudoku. No puzzle found. Try fewer rules, partial markings, or retry. Saved progress is preserved. Edit rules.".into()
         } else if self.modal == Modal::Help {
             format!(
-                "Jarcade. Sudoku. Rules. {} Space switches Digit and Corner notes. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap a selected cell to deselect; double-tap a cell with one distinct pencil-note digit to fill it. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. Before the first edit, N or the magic wand fills starting notes using row, column and box digits only, ignoring variant rules and deductions. It disappears after use or an edit. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
-                self.rules.explanation()
+                "Jarcade. Sudoku. Rules. {} Scroll to read all rules. Close.",
+                self.popup_rules().explanation()
             )
         } else if self.modal == Modal::Reset {
             "Jarcade. Sudoku. Clear this puzzle? Undo can restore the marks. Cancel or Clear."
@@ -451,19 +453,19 @@ impl SudokuPage {
             }
             ui.reset_focus();
         }
-        if icon_button(
-            ui,
-            Glyph::Help,
-            Rect::new(screen_width() - 52., 8., 44., 44.),
-        ) {
+        let rules_button = Rect::new(screen_width() - 84., 8., 76., 44.);
+        let show_rules = button(ui, rules_button, false);
+        ui.centered("Rules", rules_button, 12., ui.theme.text, true);
+        if show_rules {
+            self.cancel_gesture();
             self.modal = Modal::Help;
-            self.help_page = 0;
+            self.rules_pan = BoardPan::default();
             self.revision += 1;
             ui.reset_focus();
         }
         ui.centered(
             "Sudoku",
-            Rect::new(60., 10., screen_width() - 120., 24.),
+            Rect::new(84., 10., screen_width() - 168., 24.),
             20.,
             ui.theme.text,
             true,
@@ -472,7 +474,7 @@ impl SudokuPage {
             wrap(
                 ui,
                 &self.message,
-                Rect::new(56., 34., screen_width() - 112., 26.),
+                Rect::new(56., 34., screen_width() - 144., 26.),
                 10.,
                 ui.theme.muted,
             );
@@ -494,7 +496,7 @@ impl SudokuPage {
                     },
                     self.difficulty.name()
                 ),
-                Rect::new(54., 36., screen_width() - 108., 19.),
+                Rect::new(56., 36., screen_width() - 144., 19.),
                 11.,
                 ui.theme.muted,
                 false,
@@ -687,7 +689,154 @@ impl SudokuPage {
         }
     }
 
-    fn modal(&mut self, ui: &mut Ui) -> Option<Pulse> {
+    fn popup_rules(&self) -> Rules {
+        if self.configuring {
+            self.rules
+        } else {
+            self.game.as_ref().map_or(self.rules, |g| g.puzzle.rules())
+        }
+    }
+    fn rules_popup(&mut self, ui: &mut Ui, keys: &[(KeyCode, macroquad::miniquad::KeyMods, bool)]) {
+        let w = (screen_width() - 24.).min(460.);
+        let font = if screen_height() < 450. { 12. } else { 14. };
+        let line_height = font + 5.;
+        let rows: Vec<_> = self
+            .popup_rules()
+            .descriptions()
+            .iter()
+            .map(|text| crate::online_view::wrapped_lines(ui, text, w - 64., font))
+            .collect();
+        let content_height: f32 = rows
+            .iter()
+            .map(|lines| lines.len() as f32 * line_height + 14.)
+            .sum();
+        let h = (content_height + 138.).min((screen_height() - 24.).min(540.));
+        let r = Rect::new((screen_width() - w) / 2., (screen_height() - h) / 2., w, h);
+        bordered(r, 20., ui.theme.line, ui.theme.bg);
+        ui.centered(
+            "Rules",
+            Rect::new(r.x + 20., r.y + 16., w - 40., 28.),
+            22.,
+            ui.theme.text,
+            true,
+        );
+        let body = Rect::new(r.x + 22., r.y + 62., w - 44., h - 138.);
+        let content = vec2(body.w, content_height);
+        let old_offset = self.rules_pan.offset;
+        let mouse = Vec2::from(mouse_position());
+        let (_, wheel) = mouse_wheel();
+        if body.contains(mouse) && wheel != 0. {
+            self.rules_pan.scroll(vec2(0., -wheel * 32.), body, content);
+        }
+        for &(key, _, _) in keys {
+            let delta = match key {
+                KeyCode::Down => 36.,
+                KeyCode::Up => -36.,
+                KeyCode::PageDown => body.h * 0.8,
+                KeyCode::PageUp => -body.h * 0.8,
+                KeyCode::Home => -content_height,
+                KeyCode::End => content_height,
+                _ => 0.,
+            };
+            if delta != 0. {
+                self.rules_pan.scroll(vec2(0., delta), body, content);
+            }
+        }
+        let touch_events = touches();
+        if self.rules_touch_id.is_none()
+            && let Some(t) = touch_events.iter().find(|t| {
+                t.phase == TouchPhase::Started
+                    && body.contains(touch_point(t.position, screen_dpi_scale()))
+            })
+        {
+            self.rules_touch_id = Some(t.id);
+            self.rules_pan
+                .begin(touch_point(t.position, screen_dpi_scale()));
+        }
+        if let Some(t) = touch_events
+            .iter()
+            .find(|t| Some(t.id) == self.rules_touch_id)
+        {
+            let point = touch_point(t.position, screen_dpi_scale());
+            match t.phase {
+                TouchPhase::Moved => self.rules_pan.update(point, body, content),
+                TouchPhase::Ended => {
+                    self.rules_pan.end(point, body, content);
+                    self.rules_touch_id = None;
+                }
+                TouchPhase::Cancelled => {
+                    self.rules_pan.cancel();
+                    self.rules_touch_id = None;
+                }
+                _ => {}
+            }
+        } else if touch_events.is_empty() && self.rules_touch_id.is_none() {
+            if is_mouse_button_pressed(MouseButton::Left) && body.contains(mouse) {
+                self.rules_pan.begin(mouse);
+            }
+            if self.rules_pan.active() {
+                if is_mouse_button_down(MouseButton::Left) {
+                    self.rules_pan.update(mouse, body, content);
+                } else {
+                    self.rules_pan.end(mouse, body, content);
+                }
+            }
+        }
+        self.rules_pan.clamp(body, content);
+        if self.rules_pan.offset != old_offset {
+            self.revision += 1;
+        }
+        crate::online_view::clip(Some(body));
+        let mut y = body.y - self.rules_pan.offset.y;
+        for lines in rows {
+            draw_circle(body.x + 3., y + font * 0.65, 2., ui.theme.muted);
+            for line in lines {
+                ui.label(&line, body.x + 16., y + font, font, ui.theme.text);
+                y += line_height;
+            }
+            y += 14.;
+        }
+        crate::online_view::clip(None);
+        if content_height > body.h {
+            let thumb = (body.h * body.h / content_height).max(24.).min(body.h);
+            let top =
+                body.y + self.rules_pan.offset.y / (content_height - body.h) * (body.h - thumb);
+            rounded(
+                Rect::new(body.right() + 8., top, 2., thumb),
+                1.,
+                ui.theme.line,
+            );
+        }
+        let close = Rect::new(r.x + 20., r.bottom() - 60., w - 40., 44.);
+        let clicked = button(ui, close, true);
+        ui.centered(
+            "Close",
+            close,
+            14.,
+            if ui.theme.saver {
+                ui.theme.accent
+            } else {
+                WHITE
+            },
+            true,
+        );
+        if clicked {
+            self.modal = Modal::None;
+            self.cancel_gesture();
+            self.revision += 1;
+            ui.reset_focus();
+        }
+    }
+    fn modal(
+        &mut self,
+        ui: &mut Ui,
+        keys: &[(KeyCode, macroquad::miniquad::KeyMods, bool)],
+    ) -> Option<Pulse> {
+        if self.modal == Modal::Help {
+            self.rules_popup(ui, keys);
+            return None;
+        }
+
         if self.modal == Modal::GenerationFailed {
             let w = (screen_width() - 24.).min(460.);
             let r = Rect::new(
@@ -721,117 +870,46 @@ impl SudokuPage {
             }
             return None;
         }
-        let help = self.modal == Modal::Help;
-        let short = help && screen_height() < 450.;
-        let w = (screen_width() - 24.).min(if short { 720. } else { 460. });
-        let h = if help {
-            (screen_height() - 24.).min(540.)
-        } else {
-            190.
-        };
+        let w = (screen_width() - 24.).min(460.);
+        let h = 190.;
         let r = Rect::new((screen_width() - w) / 2., (screen_height() - h) / 2., w, h);
         bordered(r, 20., ui.theme.line, ui.theme.bg);
         ui.centered(
-            if help {
-                "Rules & controls"
-            } else {
-                "Clear this puzzle?"
-            },
+            "Clear this puzzle?",
             Rect::new(r.x + 12., r.y + 16., w - 24., 28.),
             22.,
             ui.theme.text,
             true,
         );
-        if help {
-            let descriptions = self.rules.descriptions();
-            let per_page = if short { 2 } else { 3 };
-            let rule_pages = descriptions.len().div_ceil(per_page);
-            let pages = rule_pages + 1;
-            self.help_page = self.help_page.min(pages - 1);
-            let controls = "1–9: enter. Space: digit/corner. Z/X/C/V: tools. Shift/Ctrl: notes. Drag: select. Tap again: deselect. Double-tap a sole note: fill. N/wand: starting notes. Ctrl+Z/Y: undo/redo. Pinch/scroll: zoom. Tap outside, then a number: highlight.";
-            let text = if self.help_page == rule_pages {
-                controls.into()
+        wrap(
+            ui,
+            "Your pencil marks and digits will be cleared. Undo can restore them.",
+            Rect::new(r.x + 24., r.y + 62., w - 48., 56.),
+            14.,
+            ui.theme.muted,
+        );
+        let a = Rect::new(r.x + 20., r.bottom() - 60., (w - 50.) / 2., 44.);
+        let b = Rect::new(a.right() + 10., a.y, a.w, a.h);
+        let cancel = button(ui, a, false);
+        ui.centered("Cancel", a, 14., ui.theme.text, true);
+        let clear = button(ui, b, true);
+        ui.centered(
+            "Clear",
+            b,
+            14.,
+            if ui.theme.saver {
+                ui.theme.accent
             } else {
-                descriptions[self.help_page * per_page
-                    ..((self.help_page + 1) * per_page).min(descriptions.len())]
-                    .join("\n\n")
-            };
-            wrap(
-                ui,
-                &text,
-                Rect::new(r.x + 22., r.y + 62., w - 44., h - 182.),
-                if short { 12. } else { 14. },
-                ui.theme.text,
-            );
-            let previous = Rect::new(r.x + 20., r.bottom() - 114., 44., 44.);
-            let next = Rect::new(r.right() - 64., previous.y, 44., 44.);
-            let prev_hit = icon_button(ui, Glyph::Back, previous);
-            let next_hit = button(ui, next, false);
-            ui.centered("›", next, 24., ui.theme.text, true);
-            ui.centered(
-                &format!("{} / {}", self.help_page + 1, pages),
-                Rect::new(previous.right() + 8., previous.y, w - 144., 44.),
-                12.,
-                ui.theme.muted,
-                false,
-            );
-            if prev_hit && self.help_page > 0 {
-                self.help_page -= 1;
-                self.revision += 1;
-            }
-            if next_hit && self.help_page + 1 < pages {
-                self.help_page += 1;
-                self.revision += 1;
-            }
-            let close = Rect::new(r.x + 20., r.bottom() - 60., w - 40., 44.);
-            let hit = button(ui, close, true);
-            ui.centered(
-                "Got it",
-                close,
-                14.,
-                if ui.theme.saver {
-                    ui.theme.accent
-                } else {
-                    WHITE
-                },
-                true,
-            );
-            if hit {
-                self.modal = Modal::None;
-                ui.reset_focus();
-                self.revision += 1;
-            }
-        } else {
-            wrap(
-                ui,
-                "Your pencil marks and digits will be cleared. Undo can restore them.",
-                Rect::new(r.x + 24., r.y + 62., w - 48., 56.),
-                14.,
-                ui.theme.muted,
-            );
-            let a = Rect::new(r.x + 20., r.bottom() - 60., (w - 50.) / 2., 44.);
-            let b = Rect::new(a.right() + 10., a.y, a.w, a.h);
-            let cancel = button(ui, a, false);
-            ui.centered("Cancel", a, 14., ui.theme.text, true);
-            let clear = button(ui, b, true);
-            ui.centered(
-                "Clear",
-                b,
-                14.,
-                if ui.theme.saver {
-                    ui.theme.accent
-                } else {
-                    WHITE
-                },
-                true,
-            );
-            if cancel || clear {
-                self.modal = Modal::None;
-                ui.reset_focus();
-                self.revision += 1;
-                if clear && self.game.as_mut().is_some_and(Game::reset) {
-                    return self.changed();
-                }
+                WHITE
+            },
+            true,
+        );
+        if cancel || clear {
+            self.modal = Modal::None;
+            ui.reset_focus();
+            self.revision += 1;
+            if clear && self.game.as_mut().is_some_and(Game::reset) {
+                return self.changed();
             }
         }
         None
@@ -1435,7 +1513,7 @@ impl SudokuPage {
         ui.theme = theme(ui.theme.saver);
         self.drawn_revision = self.revision;
         if self.modal != Modal::None {
-            return self.modal(ui);
+            return self.modal(ui, keys);
         }
         if let Some(generator) = self.generator.as_mut() {
             let start = get_time();

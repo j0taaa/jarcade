@@ -36,9 +36,10 @@ const names=['Arrow','Renban','Whispers','Region sum','Palindrome','Between','En
    await key('Escape');await ready('Choose a variant');console.log(`${w}×${h} ${names[n]}: generated, touch/errors/hints, restored, idle`);
   }
   if(w===390&&!saver){for(const n of [0,7,11]){const g=await choose(n,true);const r=g.puzzle.hard_rating;assert(r.stalled_cells>=45&&r.advanced_steps>=5&&r.forcing_steps>=3&&r.longest_chain>=30);console.log(`Hard ${names[n]}: ${g.puzzle.givens.filter(Boolean).length} digits`,r);await key('Escape');await ready('Choose a variant');}}
-  // Rules persist across tabs; line help has multiple pages and a separate controls page.
+  // Rules persist across tabs; the plain popup lists active line constraints.
   const s=setup(w,h,true);await tap(s.page(0));await tap(s.variant(0));await tap(s.page(1));for(let i=0;i<6;i++)await tap(s.variant(i));await tap(s.page(2));await tap(s.variant(0));await tap(s.variant(1));await tap([w-30,30]);await ready('Rules.');
-  for(let i=0;i<5;i++){await p.screenshot({path:`/tmp/jarcade-sudoku-variants-help-${w}-${saver}-${i}.png`});const mh=Math.min(h-24,540),mw=Math.min(w-24,h<450?720:460);await tap([(w+mw)/2-42,(h+mh)/2-92]);}await key('Escape');
+  await p.screenshot({path:`/tmp/jarcade-sudoku-variants-help-${w}-${saver}.png`});await key('End');await key('Escape');
+
   const before=await raw();await tap(s.page(0));await tap(s.variant(0));await tap(s.variant(5));await tap(s.page(2));await tap(s.variant(2));await p.touchscreen.tap(...s.new);await ready('Generating');const start=Date.now();await key('Escape');await ready('Choose a variant');assert(Date.now()-start<1500);assert.equal(await raw(),before);
   await c.close();console.log(`New variants passed ${w}×${h}, ${saver?'black':'white'}`);
  }
