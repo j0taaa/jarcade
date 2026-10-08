@@ -328,8 +328,12 @@ impl Tool {
             Self::Colour => "Colour",
         }
     }
-    pub fn next(self) -> Self {
-        Self::ALL[(Self::ALL.iter().position(|&t| t == self).unwrap() + 1) % 4]
+    pub fn toggle_entry(self) -> Self {
+        if self == Self::Digit {
+            Self::Corner
+        } else {
+            Self::Digit
+        }
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -390,6 +394,15 @@ impl Game {
                     .then_some(i)
             })
             .collect()
+    }
+    /// A single distinct digit in the user's notes, regardless of its correctness.
+    pub fn single_candidate(&self, cell: usize) -> Option<u8> {
+        let mark = self.marks.get(cell)?;
+        if *self.puzzle.givens.get(cell)? != 0 || mark.value != 0 {
+            return None;
+        }
+        let notes = mark.corner | mark.centre;
+        (notes.count_ones() == 1).then(|| notes.trailing_zeros() as u8 + 1)
     }
     pub fn filled(&self) -> usize {
         self.values().iter().filter(|&&d| d > 0).count()
@@ -842,6 +855,33 @@ mod tests {
         assert_eq!(restored.candidate_cells(2), cells[..3]);
         restored.erase(&[cells[0]], Tool::Corner);
         assert_eq!(restored.candidate_cells(2), cells[1..3]);
+    }
+    #[test]
+    fn single_candidate_uses_distinct_user_notes_and_never_the_solution() {
+        let mut g = game();
+        let i = g.puzzle.givens.iter().position(|&v| v == 0).unwrap();
+        let given = g.puzzle.givens.iter().position(|&v| v != 0).unwrap();
+        let wrong = g.puzzle.solution[i] % 9 + 1;
+        assert_eq!(g.single_candidate(i), None);
+        g.enter(&[i], wrong, Tool::Corner);
+        g.enter(&[i], wrong, Tool::Centre);
+        assert_eq!(g.single_candidate(i), Some(wrong));
+        let before = g.encode();
+        assert_eq!(g.single_candidate(81), None);
+        assert_eq!(g.single_candidate(given), None);
+        assert_eq!(g.encode(), before);
+        g.enter(&[i], wrong % 9 + 1, Tool::Centre);
+        assert_eq!(g.single_candidate(i), None);
+        g.enter(&[i], wrong, Tool::Digit);
+        assert_eq!(g.single_candidate(i), None);
+    }
+    #[test]
+    fn space_entry_toggle_only_uses_digit_and_corner_notes() {
+        assert_eq!(Tool::Digit.toggle_entry(), Tool::Corner);
+        for tool in [Tool::Corner, Tool::Centre, Tool::Colour] {
+            assert_eq!(tool.toggle_entry(), Tool::Digit);
+            assert_eq!(tool.toggle_entry().toggle_entry(), Tool::Corner);
+        }
     }
     #[test]
     fn mistake_feedback_tracks_correction_undo_redo_and_restore_in_every_variant() {

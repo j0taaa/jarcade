@@ -88,6 +88,14 @@ enum Modal {
     Help,
     Reset,
 }
+const DOUBLE_TAP_SECONDS: f64 = 0.35;
+struct SelectionGesture {
+    start: Vec2,
+    cell: usize,
+    additive: bool,
+    moved: bool,
+    started_at: f64,
+}
 pub struct SudokuPage {
     pub game: Option<Game>,
     pub revision: u64,
@@ -112,6 +120,8 @@ pub struct SudokuPage {
     mouse_active: bool,
     before_selection: Vec<usize>,
     last_point: Option<Vec2>,
+    gesture: Option<SelectionGesture>,
+    last_tap: Option<(usize, f64)>,
     viewport: Vec2,
 }
 impl SudokuPage {
@@ -146,6 +156,8 @@ impl SudokuPage {
             mouse_active: false,
             before_selection: Vec::new(),
             last_point: None,
+            gesture: None,
+            last_tap: None,
             viewport: Vec2::ZERO,
         }
     }
@@ -177,6 +189,8 @@ impl SudokuPage {
         self.touch_id = None;
         self.mouse_active = false;
         self.last_point = None;
+        self.gesture = None;
+        self.last_tap = None;
     }
     pub fn take_home(&mut self) -> bool {
         std::mem::take(&mut self.home)
@@ -195,6 +209,7 @@ impl SudokuPage {
         self.generator.is_some() || self.mouse_active || self.drawn_revision != self.revision
     }
     fn changed(&mut self) -> Option<Pulse> {
+        self.last_tap = None;
         self.dirty = true;
         self.revision += 1;
         self.refresh_mistakes();
@@ -296,7 +311,7 @@ impl SudokuPage {
     pub fn announcement(&self, focus: Option<usize>) -> String {
         let mut s = if self.modal == Modal::Help {
             format!(
-                "Jarcade. Sudoku. Rules. {} Space cycles Digit, Corner, Centre and Colour. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
+                "Jarcade. Sudoku. Rules. {} Space switches Digit and Corner notes. 1–9 enter a mark; Delete erases. Drag to select multiple cells. Tap a selected cell to deselect; double-tap a cell with one distinct pencil-note digit to fill it. Tap outside the board or Ctrl Shift A to deselect. With no cells selected, numbers highlight matching revealed digits and pencil notes; notes use a lighter shade. Incorrect digits are flagged immediately. Ctrl Z/Y undo/redo. Pinch or mouse wheel to zoom; drag a zoomed board to pan.",
                 self.variant.rules().join(" ")
             )
         } else if self.modal == Modal::Reset {
@@ -611,7 +626,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "1–9: digit. Space: next tool. Z / X / C / V: digit / corner / centre / colour. Shift: corner; Ctrl: centre. Drag selects cells. Ctrl + Z / Y: undo / redo. Pinch or scroll: zoom. Wrong digits turn red immediately. Tap outside or Ctrl+Shift+A to deselect. With none selected, 1–9 highlights digits; pencil notes use a lighter shade.",
+                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. Ctrl+Z/Y: undo/redo. Pinch/scroll: zoom. Wrong digits turn red. Tap outside or Ctrl+Shift+A to deselect; then 1–9 highlights digits and lighter notes.",
                     Rect::new(r.x + 44. + col, r.y + 62., col, h - 132.),
                     12.,
                     ui.theme.muted,
@@ -626,7 +641,7 @@ impl SudokuPage {
                 );
                 wrap(
                     ui,
-                    "1–9: digit · Space: next tool. Z / X / C / V: digit / corner / centre / colour. Shift: corner; Ctrl: centre. Drag selects cells. Ctrl + Z / Y: undo / redo.",
+                    "1–9: enter. Space: digit / corner notes. Z/X/C/V: tools. Shift: corner; Ctrl: centre. Drag selects; tap again deselects. Double-tap a sole note to fill. Ctrl+Z/Y: undo/redo.",
                     Rect::new(r.x + 22., r.y + 172., w - 44., 108.),
                     12.,
                     ui.theme.muted,
@@ -914,6 +929,108 @@ impl SudokuPage {
         }
         self.last_point = Some(p);
     }
+    fn cell_at(&self, p: Vec2, l: &Layout) -> Option<usize> {
+        self.pan
+            .cell_at(p, l.board, 9, 9, l.board.w * self.pan.zoom / 9.)
+    }
+    fn begin_selection(&mut self, p: Vec2, l: &Layout, additive: bool, now: f64) {
+        let Some(cell) = self.cell_at(p, l) else {
+            return;
+        };
+        // Show selection on press, but only toggle/fill after a completed tap.
+        // Drag samples must always add cells, never toggle them back off.
+        self.before_selection = self.selected.clone();
+        self.gesture = Some(SelectionGesture {
+            start: p,
+            cell,
+            additive,
+            moved: false,
+            started_at: now,
+        });
+        self.last_point = Some(p);
+        if self.pan.zoom > 1.05 {
+            self.pan.begin(p);
+        } else {
+            self.select_at(p, l, additive);
+        }
+    }
+    fn move_selection(&mut self, p: Vec2, l: &Layout) {
+        let cell = self.cell_at(p, l);
+        let Some(gesture) = &mut self.gesture else {
+            return;
+        };
+        let threshold = (l.board.w * self.pan.zoom / 9. * 0.2).min(8.);
+        gesture.moved |= gesture.start.distance(p) > threshold || cell != Some(gesture.cell);
+        if self.pan.zoom > 1.05 {
+            self.pan.update(p, l.board, l.board.size() * self.pan.zoom);
+        } else if gesture.moved {
+            self.select_segment(p, l);
+        }
+        if self.gesture.as_ref().is_some_and(|g| g.moved) {
+            self.last_tap = None;
+            self.revision += 1;
+        }
+    }
+    fn tap_cell(
+        &mut self,
+        cell: usize,
+        before: &[usize],
+        additive: bool,
+        now: f64,
+        quick: bool,
+    ) -> Option<Pulse> {
+        self.clear_digit_highlight();
+        let double = !additive
+            && quick
+            && self.last_tap.is_some_and(|(previous, time)| {
+                previous == cell && (0.0..=DOUBLE_TAP_SECONDS).contains(&(now - time))
+            });
+        self.last_tap = None;
+        if double
+            && let Some(g) = &mut self.game
+            && let Some(number) = g.single_candidate(cell)
+            && g.enter(&[cell], number, Tool::Digit)
+        {
+            self.selected = vec![cell];
+            return self.changed();
+        }
+        self.selected = if before.contains(&cell) {
+            before.iter().copied().filter(|&i| i != cell).collect()
+        } else if additive {
+            let mut cells = before.to_vec();
+            cells.push(cell);
+            cells
+        } else {
+            vec![cell]
+        };
+        self.last_tap = (!additive && quick).then_some((cell, now));
+        self.revision += 1;
+        None
+    }
+    fn end_selection(&mut self, p: Vec2, l: &Layout, now: f64) -> Option<Pulse> {
+        self.move_selection(p, l);
+        let gesture = self.gesture.take()?;
+        let tap = if self.pan.zoom > 1.05 {
+            self.pan.end(p, l.board, l.board.size() * self.pan.zoom)
+        } else {
+            Some(p)
+        };
+        self.last_point = None;
+        if !gesture.moved
+            && let Some(cell) = tap.and_then(|p| self.cell_at(p, l))
+            && cell == gesture.cell
+        {
+            return self.tap_cell(
+                cell,
+                &self.before_selection.clone(),
+                gesture.additive,
+                now,
+                now - gesture.started_at <= DOUBLE_TAP_SECONDS,
+            );
+        }
+        self.last_tap = None;
+        None
+    }
     fn input(
         &mut self,
         ui: &mut Ui,
@@ -922,6 +1039,9 @@ impl SudokuPage {
         keys: &[(KeyCode, macroquad::miniquad::KeyMods, bool)],
     ) -> Option<Pulse> {
         let mut pulse = None;
+        if ui.activated || keys.iter().any(|(_, _, repeat)| !repeat) {
+            self.last_tap = None;
+        }
         let ctrl = is_key_down(KeyCode::LeftControl)
             || is_key_down(KeyCode::RightControl)
             || is_key_down(KeyCode::LeftSuper)
@@ -934,7 +1054,7 @@ impl SudokuPage {
                 continue;
             }
             if key == KeyCode::Space {
-                self.tool = self.tool.next();
+                self.tool = self.tool.toggle_entry();
                 ui.reset_focus();
                 self.revision += 1;
                 continue;
@@ -1060,6 +1180,8 @@ impl SudokuPage {
             }
             self.last_point = None;
             self.mouse_active = false;
+            self.gesture = None;
+            self.last_tap = None;
             self.revision += 1;
             return pulse;
         }
@@ -1073,7 +1195,12 @@ impl SudokuPage {
                 && touches.iter().any(|t| t.phase == TouchPhase::Ended)
                 && let Some(p) = press.filter(|p| l.board.contains(*p))
             {
-                self.select_at(p, l, false);
+                self.begin_selection(p, l, false, get_time());
+                let end = touches
+                    .iter()
+                    .find(|t| t.phase == TouchPhase::Ended)
+                    .map_or(p, |t| touch_point(t.position, screen_dpi_scale()));
+                pulse = self.end_selection(end, l, get_time()).or(pulse);
                 ui.reset_focus();
             }
             if self.touch_id.is_none()
@@ -1085,36 +1212,17 @@ impl SudokuPage {
             {
                 let p = touch_point(t.position, screen_dpi_scale());
                 self.touch_id = Some(t.id);
-                self.before_selection = self.selected.clone();
-                self.last_point = Some(p);
-                if self.pan.zoom > 1.05 {
-                    self.pan.begin(p);
-                } else {
-                    self.select_at(p, l, false);
-                }
+                self.begin_selection(p, l, false, get_time());
                 ui.reset_focus();
             }
             if let Some(t) = touches.iter().find(|t| Some(t.id) == self.touch_id) {
                 let p = touch_point(t.position, screen_dpi_scale());
                 match t.phase {
                     TouchPhase::Moved => {
-                        if self.pan.zoom > 1.05 {
-                            self.pan.update(p, l.board, l.board.size() * self.pan.zoom);
-                        } else {
-                            self.select_segment(p, l);
-                        }
-                        self.revision += 1;
+                        self.move_selection(p, l);
                     }
                     TouchPhase::Ended => {
-                        if self.pan.zoom > 1.05 {
-                            if let Some(p) =
-                                self.pan.end(p, l.board, l.board.size() * self.pan.zoom)
-                            {
-                                self.select_at(p, l, false);
-                            }
-                        } else {
-                            self.select_segment(p, l);
-                        }
+                        pulse = self.end_selection(p, l, get_time()).or(pulse);
                         self.touch_id = None;
                         self.last_point = None;
                     }
@@ -1132,37 +1240,21 @@ impl SudokuPage {
         let mouse = vec2(mx, my);
         if let Some(p) = press.filter(|p| l.board.contains(*p)) {
             self.mouse_active = true;
-            self.last_point = Some(p);
-            if self.pan.zoom > 1.05 {
-                self.pan.begin(p);
-            } else {
-                self.select_at(p, l, ctrl || shift);
-            }
+            self.begin_selection(p, l, ctrl || shift, get_time());
             ui.reset_focus();
         }
         if self.mouse_active {
             if is_mouse_button_down(MouseButton::Left) {
-                if self.pan.zoom > 1.05 {
-                    self.pan
-                        .update(mouse, l.board, l.board.size() * self.pan.zoom);
-                } else {
-                    self.select_segment(mouse, l);
-                }
-                self.revision += 1;
+                self.move_selection(mouse, l);
             } else {
-                if self.pan.zoom > 1.05 {
-                    if let Some(p) = self.pan.end(mouse, l.board, l.board.size() * self.pan.zoom) {
-                        self.select_at(p, l, ctrl || shift);
-                    }
-                } else {
-                    self.select_segment(mouse, l);
-                }
+                pulse = self.end_selection(mouse, l, get_time()).or(pulse);
                 self.mouse_active = false;
                 self.last_point = None;
             }
         }
         let (_, wheel) = mouse_wheel();
         if wheel != 0. && l.board.contains(mouse) {
+            self.last_tap = None;
             self.pan.zoom_at(
                 mouse,
                 (self.pan.zoom * (1. + wheel * 0.1)).clamp(1., 2.5),
@@ -1297,6 +1389,100 @@ mod tests {
         )));
         page.resume();
         page
+    }
+    fn point(l: &Layout, cell: usize) -> Vec2 {
+        l.board.point() + vec2(cell as f32 % 9. + 0.5, (cell / 9) as f32 + 0.5) * l.board.w / 9.
+    }
+    fn tap(page: &mut SudokuPage, l: &Layout, cell: usize, time: f64) -> Option<Pulse> {
+        let p = point(l, cell);
+        page.begin_selection(p, l, false, time);
+        page.end_selection(p, l, time + 0.01)
+    }
+    #[test]
+    fn repeated_taps_deselect_and_modifier_clicks_remove_only_the_clicked_cell() {
+        let mut page = page();
+        let l = Layout::new(390., 844.);
+        let before = page.game.as_ref().unwrap().encode();
+        tap(&mut page, &l, 0, 1.);
+        assert_eq!(page.selected, vec![0]);
+        tap(&mut page, &l, 0, 2.);
+        assert!(page.selected.is_empty());
+        page.selected = vec![0, 1, 2];
+        page.begin_selection(point(&l, 1), &l, true, 3.);
+        page.end_selection(point(&l, 1), &l, 3.01);
+        assert_eq!(page.selected, vec![0, 2]);
+        assert_eq!(page.game.as_ref().unwrap().encode(), before);
+        assert!(!page.dirty);
+    }
+    #[test]
+    fn quick_double_tap_fills_the_users_single_note_in_any_tool_and_is_undoable() {
+        for tool in Tool::ALL {
+            let mut page = page();
+            let l = Layout::new(390., 844.);
+            let g = page.game.as_mut().unwrap();
+            let i = g.puzzle.givens.iter().position(|&v| v == 0).unwrap();
+            let wrong = g.puzzle.solution[i] % 9 + 1;
+            g.enter(&[i], wrong, Tool::Corner);
+            g.enter(&[i], wrong, Tool::Centre);
+            let before = g.encode();
+            let notes = g.marks.clone();
+            page.tool = tool;
+            tap(&mut page, &l, i, 1.);
+            assert_eq!(page.game.as_ref().unwrap().encode(), before);
+            assert!(tap(&mut page, &l, i, 1.15).is_some());
+            assert_eq!(page.tool, tool);
+            assert_eq!(page.selected, vec![i]);
+            assert_eq!(page.game.as_ref().unwrap().marks[i].value, wrong);
+            assert_eq!(page.mistakes, vec![i]);
+            assert!(page.dirty);
+            page.game.as_mut().unwrap().undo();
+            assert_eq!(page.game.as_ref().unwrap().marks, notes);
+            assert_eq!(page.game.as_ref().unwrap().single_candidate(i), Some(wrong));
+            page.game.as_mut().unwrap().redo();
+            assert_eq!(page.game.as_ref().unwrap().marks[i].value, wrong);
+        }
+    }
+    #[test]
+    fn slow_taps_long_holds_and_drags_never_fill_a_candidate() {
+        let mut page = page();
+        let l = Layout::new(390., 844.);
+        let g = page.game.as_mut().unwrap();
+        let i = (0..80).find(|&i| g.puzzle.givens[i] == 0).unwrap();
+        g.enter(&[i], 4, Tool::Corner);
+        let before = g.encode();
+        tap(&mut page, &l, i, 1.);
+        tap(&mut page, &l, i, 2.);
+        assert!(page.selected.is_empty());
+        page.begin_selection(point(&l, i), &l, false, 3.);
+        page.end_selection(point(&l, i), &l, 4.);
+        tap(&mut page, &l, i, 4.1);
+        assert!(page.selected.is_empty());
+        tap(&mut page, &l, i, 5.);
+        page.begin_selection(point(&l, i), &l, false, 5.1);
+        page.move_selection(point(&l, i + 1), &l);
+        page.move_selection(point(&l, i), &l);
+        page.end_selection(point(&l, i), &l, 5.2);
+        assert!(page.selected.contains(&(i + 1)));
+        tap(&mut page, &l, i, 5.25);
+        assert_eq!(page.game.as_ref().unwrap().encode(), before);
+    }
+    #[test]
+    fn double_taps_with_no_notes_or_two_distinct_notes_only_toggle_selection() {
+        let mut page = page();
+        let l = Layout::new(390., 844.);
+        let g = page.game.as_mut().unwrap();
+        let i = g.puzzle.givens.iter().position(|&v| v == 0).unwrap();
+        tap(&mut page, &l, i, 1.);
+        tap(&mut page, &l, i, 1.1);
+        assert!(page.selected.is_empty());
+        let g = page.game.as_mut().unwrap();
+        g.enter(&[i], 2, Tool::Corner);
+        g.enter(&[i], 3, Tool::Centre);
+        let before = g.encode();
+        tap(&mut page, &l, i, 2.);
+        tap(&mut page, &l, i, 2.1);
+        assert!(page.selected.is_empty());
+        assert_eq!(page.game.as_ref().unwrap().encode(), before);
     }
     #[test]
     fn no_selection_numbers_highlight_without_editing_progress_or_undo_history() {

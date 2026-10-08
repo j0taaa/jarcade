@@ -38,7 +38,7 @@ function pixels(path,points){
       assert.deepEqual(sampled.at(-1),saver?[0,0,0]:[255,255,255],'Hidden answer cells must stay unhighlighted');
       await key(String(query));await tap(l.number(2));await highlighted(2);assert.equal(await raw(),initial);await tap(l.number(2));assert(!(await label()).includes('Highlighted digit'));
       // Every tool uses number lookup while selection is empty.
-      for(const mode of ['Corner notes','Centre notes','Colour','Digit']){await key('Space');await ready(`${mode} mode`);await key('3');await highlighted(3);assert.equal(await raw(),initial);await key('3');}
+      for(const[shortcut,mode]of[['x','Corner notes'],['c','Centre notes'],['v','Colour'],['z','Digit']]){await key(shortcut);await ready(`${mode} mode`);await key('3');await highlighted(3);assert.equal(await raw(),initial);await key('3');}
       const i=g.puzzle.givens.findIndex(v=>v===0),correct=g.puzzle.solution[i],wrong=correct%9+1;
       await tap(l.cell(i));await ready(`Selected cells: ${coordinates([i])}.`);await key(String(wrong));
       await ready('1 incorrect digit');assert.equal((await game()).marks[i][0],wrong);

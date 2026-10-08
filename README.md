@@ -269,6 +269,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-ui.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-nonograms-marks.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-feedback.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-taps.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -516,10 +517,14 @@ Thermometers increase strictly from bulb to tip; Diagonal adds both diagonals.
 The in-game rules explain each mode. Generation proceeds over input-responsive
 frames, then the page returns to event-driven idle rendering.
 
-Tap a cell, then a number, or drag to select a group. The four tools enter large
-digits, corner notes, centre notes, or one of nine colours. **Space** cycles
-tools; **Z / X / C / V** select them directly. **Shift + digit** adds corner
-notes; **Ctrl + digit** adds centre notes. Arrows move selection; Shift/Ctrl
+Tap a cell, then a number, or drag to select a group. Tap a selected cell again
+to deselect it. Double-tap an empty cell with one distinct digit in your corner
+and/or centre notes to fill it, even if that candidate is incorrect. Filling is
+undoable; drags, pinches and slow repeat taps never fill a candidate.
+The four tools enter large digits, corner notes, centre notes, or one of nine
+colours. **Space** switches between digits and corner notes; **Z / X / C / V**
+select them directly. **Shift + digit** adds corner notes; **Ctrl + digit** adds
+centre notes. Arrows move selection; Shift/Ctrl
 arrows extend it. **Ctrl + A** selects the whole grid. Tap/click outside the
 board or **Ctrl + Shift + A** to deselect. With no cells selected, a number
 highlights matching givens and entered digits, with a lighter shade for
