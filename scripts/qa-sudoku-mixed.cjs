@@ -41,9 +41,9 @@ const base=process.env.JARCADE_QA_URL||'http://127.0.0.1:8092';
   await p.screenshot({path:`/tmp/jarcade-sudoku-mixed-overlap-${w}-${saver}.png`});
   await key('Escape');await ready('Choose a variant');const before=await raw();await tap(s.difficulty(2));await tap(s.marking(0));await p.touchscreen.tap(...s.new);await ready('Generating');await key('Escape');await ready('Choose a variant');assert.equal(await raw(),before);
   if(w===390&&!saver){
-   await tap(s.new);await p.waitForFunction(()=>{const label=document.querySelector('canvas')?.getAttribute('aria-label')||'';return label.includes('No expert puzzle found')||label.includes('Hard. Digit mode');},null,{timeout:90000});
+   await tap(s.new);await p.waitForFunction(()=>{const label=document.querySelector('canvas')?.getAttribute('aria-label')||'';return label.includes('No puzzle found')||label.includes('Hard. Digit mode');},null,{timeout:90000});
    const status=await p.locator('canvas').getAttribute('aria-label');
-   if(status.includes('No expert puzzle found')){assert.equal(await raw(),before);await p.screenshot({path:'/tmp/jarcade-sudoku-mixed-budget.png'});await tap([w/2,h/2+72]);await ready('Choose a variant');}
+   if(status.includes('No puzzle found')){assert.equal(await raw(),before);await p.screenshot({path:'/tmp/jarcade-sudoku-mixed-budget.png'});await tap([w/2,h/2+72]);await ready('Choose a variant');}
    else assert((await game()).puzzle.hard_rating.forcing_steps>=3);
   }
   await c.close();console.log(`Mixed controls passed: ${w}×${h}, ${saver?'black':'white'}`);

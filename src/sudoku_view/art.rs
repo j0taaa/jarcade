@@ -163,6 +163,17 @@ pub fn draw_board(
     r: Rect,
     preview: bool,
 ) {
+    let r = if preview && !p.sandwiches.is_empty() {
+        let margin = r.w * 0.07;
+        Rect::new(
+            r.x + margin,
+            r.y + margin,
+            r.w - 2. * margin,
+            r.h - 2. * margin,
+        )
+    } else {
+        r
+    };
     let u = r.w / 9.;
     draw_rectangle(r.x, r.y, r.w, r.h, ui.theme.bg);
     for i in 0..81 {
@@ -238,6 +249,58 @@ pub fn draw_board(
         };
         draw_line(r.x, r.y, r.right(), r.bottom(), u * 0.13, c);
         draw_line(r.right(), r.y, r.x, r.bottom(), u * 0.13, c);
+    }
+    let point = |i: usize| {
+        vec2(
+            r.x + (i % 9) as f32 * u + u / 2.,
+            r.y + (i / 9) as f32 * u + u / 2.,
+        )
+    };
+    for line in &p.lines {
+        let base = match line.kind {
+            LineKind::Arrow => color_u8!(118, 137, 158, 255),
+            LineKind::Renban => color_u8!(176, 109, 209, 255),
+            LineKind::Whispers => color_u8!(55, 164, 119, 255),
+            LineKind::RegionSum => color_u8!(64, 151, 209, 255),
+            LineKind::Palindrome => color_u8!(142, 145, 156, 255),
+            LineKind::Between => color_u8!(226, 141, 79, 255),
+            LineKind::Entropic => color_u8!(199, 169, 55, 255),
+        };
+        let c = if ui.theme.saver {
+            base
+        } else {
+            Color::new(base.r, base.g, base.b, 0.62)
+        };
+        let thickness = (u * 0.09).max(if preview { 0.7 } else { 1.4 });
+        for (j, pair) in line.cells.windows(2).enumerate() {
+            let mut a = point(pair[0]);
+            let mut b = point(pair[1]);
+            if j == 0 && matches!(line.kind, LineKind::Arrow | LineKind::Between) {
+                a += (b - a).normalize() * u * 0.26;
+            }
+            if j == line.cells.len() - 2 && line.kind == LineKind::Between {
+                b += (a - b).normalize() * u * 0.26;
+            }
+            draw_line(a.x, a.y, b.x, b.y, thickness, c);
+        }
+        if line.kind == LineKind::Arrow {
+            let circle = point(line.cells[0]);
+            draw_circle_lines(circle.x, circle.y, u * 0.29, thickness, c);
+            let tip = point(*line.cells.last().unwrap());
+            let previous = point(line.cells[line.cells.len() - 2]);
+            let direction = (tip - previous).normalize();
+            let sideways = vec2(-direction.y, direction.x);
+            for sign in [-1., 1.] {
+                let wing = tip - direction * u * 0.23 + sideways * u * 0.13 * sign;
+                draw_line(tip.x, tip.y, wing.x, wing.y, thickness, c);
+            }
+        }
+        if line.kind == LineKind::Between {
+            for &i in [line.cells[0], *line.cells.last().unwrap()].iter() {
+                let c0 = point(i);
+                draw_circle_lines(c0.x, c0.y, u * 0.26, thickness, c);
+            }
+        }
     }
     for t in &p.thermos {
         let point = |i: usize| {
@@ -400,6 +463,21 @@ pub fn draw_board(
                 ui.theme.accent,
             );
         }
+    }
+    for clue in &p.sandwiches {
+        let (x, y) = if clue.unit < 9 {
+            (r.x - u * 0.45, r.y + (clue.unit as f32 + 0.5) * u)
+        } else {
+            (r.x + (clue.unit as f32 - 9. + 0.5) * u, r.y - u * 0.45)
+        };
+        let label = clue.sum.to_string();
+        ui.centered(
+            &label,
+            Rect::new(x - u * 0.28, y - u * 0.25, u * 0.56, u * 0.5),
+            (u * 0.32).clamp(if preview { 2. } else { 7. }, 16.),
+            ui.theme.muted,
+            true,
+        );
     }
     for e in &p.edges {
         let a = vec2(

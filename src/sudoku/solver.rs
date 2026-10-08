@@ -99,6 +99,35 @@ impl Logic<'_> {
                 }
             }
         }
+        for &(a, b, nc) in self.puzzle.rules().global_pairs() {
+            self.pair(
+                a,
+                b,
+                |x, y| if nc { x.abs_diff(y) != 1 } else { x != y },
+                if nc {
+                    "Orthogonal neighbours cannot be consecutive"
+                } else {
+                    "The chess restriction excludes an equal digit"
+                },
+            );
+        }
+        for line in &self.puzzle.lines {
+            let support = super::constraints::line_support(line, &self.masks);
+            for (&i, &allowed) in line.cells.iter().zip(&support) {
+                self.restrict(i, allowed, line.kind.reason(), 2);
+            }
+        }
+        for clue in &self.puzzle.sandwiches {
+            let support = super::constraints::sandwich_support(clue, &self.masks);
+            for (&i, &allowed) in clue.cells().iter().zip(&support) {
+                self.restrict(
+                    i,
+                    allowed,
+                    "The sandwich total fixes the digits between 1 and 9",
+                    2,
+                );
+            }
+        }
         for edge in &self.puzzle.edges {
             self.pair(
                 edge.a,

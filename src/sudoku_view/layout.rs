@@ -61,6 +61,15 @@ impl Layout {
             }
         }
     }
+    pub fn reserve_clues(&mut self) {
+        let margin = (self.board.w / 9. * 0.75).clamp(14., 48.);
+        self.board = Rect::new(
+            self.board.x + margin,
+            self.board.y + margin,
+            self.board.w - 2. * margin,
+            self.board.h - 2. * margin,
+        );
+    }
     pub fn number(&self, d: usize) -> Rect {
         let unit = (self.pad.w - 18.) / 4.;
         let i = d - 1;
@@ -107,9 +116,115 @@ impl Layout {
         )
     }
 }
+
+pub struct SetupLayout {
+    pub tabs: [Rect; 3],
+    pub cards: [Rect; 6],
+    pub markings: [Rect; 2],
+    pub difficulty: [Rect; 3],
+    pub new: Rect,
+    pub resume: Rect,
+}
+impl SetupLayout {
+    pub fn new(w: f32, h: f32, saved: bool) -> Self {
+        let width = (w - 32.).min(780.);
+        let x = (w - width) / 2.;
+        let side = w >= 480. && h < 500.;
+        let gap = if side { 6. } else { 10. };
+        let gallery = if side { width - 218. } else { width };
+        let cols = if side {
+            2
+        } else if w >= 680. {
+            3
+        } else {
+            2
+        };
+        let rows = 6 / cols;
+        let top = 114.;
+        let ch = if side {
+            ((h - top - 10. - gap * rows as f32) / rows as f32).clamp(44., 100.)
+        } else {
+            ((h - top - 166. - gap * rows as f32) / rows as f32).clamp(44., 156.)
+        };
+        let cw = (gallery - gap * (cols - 1) as f32) / cols as f32;
+        let cards = std::array::from_fn(|i| {
+            Rect::new(
+                x + (i % cols) as f32 * (cw + gap),
+                top + (i / cols) as f32 * (ch + gap),
+                cw,
+                ch,
+            )
+        });
+        let sx = if side { x + gallery + 18. } else { x };
+        let sw = if side { 200. } else { width };
+        let sy = if side {
+            top
+        } else {
+            top + rows as f32 * (ch + gap) + 6.
+        };
+        let markings = std::array::from_fn(|i| {
+            Rect::new(sx + i as f32 * (sw + 10.) / 2., sy, (sw - 10.) / 2., 44.)
+        });
+        let difficulty = std::array::from_fn(|i| {
+            Rect::new(sx + i as f32 * sw / 3., sy + 50., sw / 3. - 4., 42.)
+        });
+        let nw = if saved { (sw - 10.) / 2. } else { sw };
+        let new = Rect::new(sx, sy + 106., nw, 46.);
+        let resume = Rect::new(new.right() + 10., new.y, nw, 46.);
+        let tabs = std::array::from_fn(|i| {
+            Rect::new(x + i as f32 * width / 3., 64., width / 3. - 4., 44.)
+        });
+        Self {
+            tabs,
+            cards,
+            markings,
+            difficulty,
+            new,
+            resume,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paged_rule_controls_and_outside_clues_fit_all_screen_shapes() {
+        for (w, h) in [
+            (320., 568.),
+            (390., 844.),
+            (768., 1024.),
+            (1440., 900.),
+            (568., 320.),
+            (1024., 600.),
+        ] {
+            for saved in [false, true] {
+                let l = SetupLayout::new(w, h, saved);
+                let mut controls = Vec::from(l.tabs);
+                controls.extend(l.cards);
+                controls.extend(l.markings);
+                controls.extend(l.difficulty);
+                controls.push(l.new);
+                if saved {
+                    controls.push(l.resume);
+                }
+                for (i, r) in controls.iter().enumerate() {
+                    assert!(r.w >= 44. && r.h >= 42.);
+                    assert!(
+                        r.x >= 0. && r.y >= 0. && r.right() <= w && r.bottom() <= h,
+                        "{w} {h} {r:?}"
+                    );
+                    assert!(controls[i + 1..].iter().all(|s| !r.overlaps(s)));
+                }
+            }
+            let mut l = Layout::new(w, h);
+            let outer = l.board;
+            l.reserve_clues();
+            let u = l.board.w / 9.;
+            assert!(l.board.x - u * 0.73 >= outer.x && l.board.y - u * 0.73 >= outer.y);
+            assert!(l.board.right() <= outer.right() && l.board.bottom() <= outer.bottom());
+        }
+    }
     #[test]
     fn board_and_number_pad_fit_phones_tablets_and_landscape() {
         for (w, h) in [

@@ -273,6 +273,7 @@ NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-taps.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-notes.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-hard.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-mixed.cjs
+NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-sudoku-variants.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-home.cjs
 NODE_PATH=/tmp/jarcade-browser-qa/node_modules node scripts/qa-card-table.cjs
 # Table tennis image checks also require Python with Pillow and numpy:
@@ -505,7 +506,9 @@ Rules and CPU logic live in `src/table_tennis.rs`; the shared vector renderer an
 ## Sudoku
 
 Choose **Single player → Sudoku**, or open `?game=sudoku`. Generate a new
-**Classic, Killer, V & X, Kropki, Thermo, or Diagonal** puzzle, or combine
+**Classic, Killer, V & X, Kropki, Thermo, Diagonal, Arrow, Renban, German
+Whispers, Region Sum Lines, Palindrome, Between Lines, Entropic Lines, Sandwich,
+Anti-knight, Anti-king, Non-consecutive, or Miracle** puzzle, or combine
 constraints (for example **XV + Diagonal**), at **Easy, Medium,
 or Hard**, or resume the last saved game. The board and number pad take their
 layout cues from [SudokuPad / Cracking the Cryptic](https://sudokupad.com/).
@@ -532,7 +535,9 @@ run in small cancellable steps; idle screens remain event-driven. Hints use the
 same expert proof and cache deductions only while visible digits match.
 The technique definitions follow [HoDoKu's guide](https://hodoku.sourceforge.net/en/techniques.php).
 
-Select multiple rule cards; Classic clears the extra rules. The **XV** and
+The **Basics / Lines / More** tabs keep the rule picker compact. Select multiple
+rule cards across tabs; Classic clears the extra rules. Miracle toggles the
+anti-knight, anti-king and non-consecutive rules together. The **XV** and
 **Dots** controls independently cycle Off → Partial → Full. Partial markings
 restrict only marked edges. Full XV excludes sums of 5/10 on edges without V/X;
 full dots exclude consecutive/double digits on edges without a dot. A 1/2 pair
@@ -540,7 +545,7 @@ can carry either white or black. XV and dots can share an edge and are drawn
 side by side; their absent-mark restrictions remain independent.
 
 Hard greedily attempts to remove every starting digit and optional partial mark,
-cage total and thermometer. Each removal requires an independent uniqueness
+cage total, thermometer, line and Sandwich total. Each removal requires an independent uniqueness
 proof; at least one clue remains for each selected visible rule. Full markings
 are mandatory and are never removed. Killer cages stay connected and have no
 repeats; uncaged cells follow normal Sudoku. This aims for locally sparse clues
@@ -551,7 +556,34 @@ saved puzzle, rather than returning an easy puzzle or searching forever.
 Older single-mode saves preserve their original full cage coverage and partial
 marking semantics.
 Thermometers increase strictly from bulb to tip; Diagonal adds both diagonals.
-The in-game rules explain each mode.
+Additional rules:
+
+- **Arrow:** digits on the shaft sum to its circle; repeats are allowed where
+  ordinary Sudoku permits them.
+- **Renban:** distinct digits form a consecutive set, in any order.
+- **German Whispers:** adjacent line digits differ by at least five.
+- **Region Sum:** every segment inside a 3×3 box has the same sum; returning to
+  a box creates a separate segment.
+- **Palindrome:** mirrored positions have equal digits.
+- **Between:** interior digits lie strictly between the two circled endpoints.
+- **Entropic:** every three consecutive positions contain one digit from each
+  group: 1–3, 4–6, 7–9.
+- **Sandwich:** an outside total sums the digits strictly between 1 and 9 in its
+  row or column. Totals have a reserved gutter and remain visible on phones.
+- **Anti-knight / Anti-king:** equal digits cannot be a knight's move / king's
+  move apart. **Non-consecutive:** orthogonal neighbours cannot differ by one.
+- **Miracle:** combines all three preceding restrictions.
+
+The in-game rules paginate descriptions for combined puzzles. Hints explain
+these constraints and immediately incorrect entries work in every mode.
+Line paths and Sandwich totals are derived from a completed grid, then clues
+are removed with the same proof and uniqueness checks as the existing modes.
+Global chess restrictions use seeded valid-grid symmetries; combinations with
+Diagonal use a bounded resumable completion search instead. Non-consecutive
+Hard removal also requires a logical proof before the independent uniqueness
+check, keeping sparse candidates within the supported solving techniques.
+Incompatible or unsuccessful combinations return to setup without replacing
+saved progress. No generated puzzle is accepted without its logical proof.
 
 Tap a cell, then a number, or drag to select a group. Tap a selected cell again
 to deselect it. Double-tap an empty cell with one distinct digit in your corner

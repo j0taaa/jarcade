@@ -1,5 +1,7 @@
 //! Offline Sudoku: original generated grids, variant constraints and pencil marks.
+mod constraints;
 mod generator;
+pub use constraints::{Line, LineKind, Sandwich};
 mod solver;
 pub use generator::Generator;
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,18 @@ pub enum Variant {
     Kropki,
     Thermo,
     Diagonal,
+    Arrow,
+    Renban,
+    Whispers,
+    RegionSum,
+    Palindrome,
+    Between,
+    Entropic,
+    Sandwich,
+    AntiKnight,
+    AntiKing,
+    NonConsecutive,
+    Miracle,
 }
 impl Variant {
     pub const ALL: [Self; 6] = [
@@ -40,6 +54,26 @@ impl Variant {
         Self::Thermo,
         Self::Diagonal,
     ];
+    pub const OPTIONS: [Self; 18] = [
+        Self::Classic,
+        Self::Killer,
+        Self::Xv,
+        Self::Kropki,
+        Self::Thermo,
+        Self::Diagonal,
+        Self::Arrow,
+        Self::Renban,
+        Self::Whispers,
+        Self::RegionSum,
+        Self::Palindrome,
+        Self::Between,
+        Self::Entropic,
+        Self::Sandwich,
+        Self::AntiKnight,
+        Self::AntiKing,
+        Self::NonConsecutive,
+        Self::Miracle,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             Self::Classic => "Classic",
@@ -48,6 +82,18 @@ impl Variant {
             Self::Kropki => "Kropki",
             Self::Thermo => "Thermo",
             Self::Diagonal => "Diagonal",
+            Self::Arrow => "Arrow",
+            Self::Renban => "Renban",
+            Self::Whispers => "Whispers",
+            Self::RegionSum => "Region sum",
+            Self::Palindrome => "Palindrome",
+            Self::Between => "Between",
+            Self::Entropic => "Entropic",
+            Self::Sandwich => "Sandwich",
+            Self::AntiKnight => "Anti-knight",
+            Self::AntiKing => "Anti-king",
+            Self::NonConsecutive => "Non-consecutive",
+            Self::Miracle => "Miracle",
         }
     }
     pub fn subtitle(self) -> &'static str {
@@ -58,41 +104,11 @@ impl Variant {
             Self::Kropki => "Connect the dots",
             Self::Thermo => "Follow the warmth",
             Self::Diagonal => "Across both diagonals",
+            _ => "More ways to reason",
         }
     }
-    pub fn rules(self) -> &'static [&'static str] {
-        match self {
-            Self::Classic => &[
-                "Each row, column and 3 × 3 box",
-                "contains the digits 1–9 once.",
-            ],
-            Self::Killer => &[
-                "Normal Sudoku rules apply.",
-                "Digits in a dotted cage add to its",
-                "small total. No repeats in a cage.",
-            ],
-            Self::Xv => &[
-                "Normal Sudoku rules apply.",
-                "V joins digits adding to 5; X to 10.",
-                "Unmarked edges have no extra rule.",
-            ],
-            Self::Kropki => &[
-                "Normal Sudoku rules apply.",
-                "Hollow dots: consecutive digits.",
-                "Filled dots: one digit is twice the other.",
-                "Unmarked edges have no extra rule.",
-            ],
-            Self::Thermo => &[
-                "Normal Sudoku rules apply.",
-                "Digits strictly increase from the bulb",
-                "to the tip of each thermometer.",
-            ],
-            Self::Diagonal => &[
-                "Normal Sudoku rules apply.",
-                "Both long diagonals also contain",
-                "the digits 1–9 once.",
-            ],
-        }
+    pub fn rules(self) -> Vec<String> {
+        vec![Rules::from_variant(self).explanation()]
     }
 }
 /// Independent constraints. An absent rules field keeps legacy single-mode saves intact.
@@ -116,12 +132,35 @@ impl ClueMode {
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Rules {
     pub killer: bool,
     pub xv: ClueMode,
     pub kropki: ClueMode,
     pub thermo: bool,
     pub diagonal: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub arrow: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub renban: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub whispers: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub region_sum: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub palindrome: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub between: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub entropic: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub sandwich: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub anti_knight: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub anti_king: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub non_consecutive: bool,
 }
 impl Rules {
     pub fn from_variant(v: Variant) -> Self {
@@ -137,6 +176,18 @@ impl Rules {
             Variant::Kropki => self.kropki.enabled(),
             Variant::Thermo => self.thermo,
             Variant::Diagonal => self.diagonal,
+            Variant::Arrow => self.arrow,
+            Variant::Renban => self.renban,
+            Variant::Whispers => self.whispers,
+            Variant::RegionSum => self.region_sum,
+            Variant::Palindrome => self.palindrome,
+            Variant::Between => self.between,
+            Variant::Entropic => self.entropic,
+            Variant::Sandwich => self.sandwich,
+            Variant::AntiKnight => self.anti_knight,
+            Variant::AntiKing => self.anti_king,
+            Variant::NonConsecutive => self.non_consecutive,
+            Variant::Miracle => self.anti_knight && self.anti_king && self.non_consecutive,
         }
     }
     pub fn toggle(&mut self, v: Variant) {
@@ -159,20 +210,48 @@ impl Rules {
             }
             Variant::Thermo => self.thermo = !self.thermo,
             Variant::Diagonal => self.diagonal = !self.diagonal,
+            Variant::Arrow => self.arrow = !self.arrow,
+            Variant::Renban => self.renban = !self.renban,
+            Variant::Whispers => self.whispers = !self.whispers,
+            Variant::RegionSum => self.region_sum = !self.region_sum,
+            Variant::Palindrome => self.palindrome = !self.palindrome,
+            Variant::Between => self.between = !self.between,
+            Variant::Entropic => self.entropic = !self.entropic,
+            Variant::Sandwich => self.sandwich = !self.sandwich,
+            Variant::AntiKnight => self.anti_knight = !self.anti_knight,
+            Variant::AntiKing => self.anti_king = !self.anti_king,
+            Variant::NonConsecutive => self.non_consecutive = !self.non_consecutive,
+            Variant::Miracle => {
+                let enabled = !self.contains(Variant::Miracle);
+                self.anti_knight = enabled;
+                self.anti_king = enabled;
+                self.non_consecutive = enabled;
+            }
         }
     }
     pub fn primary(self) -> Variant {
-        Variant::ALL
+        if self == Self::from_variant(Variant::Miracle) {
+            return Variant::Miracle;
+        }
+        Variant::OPTIONS
             .into_iter()
             .skip(1)
-            .find(|&v| self.contains(v))
+            .find(|&v| v != Variant::Miracle && self.contains(v))
             .unwrap_or(Variant::Classic)
     }
     pub fn name(self) -> String {
-        let names: Vec<_> = Variant::ALL
+        let names: Vec<_> = Variant::OPTIONS
             .into_iter()
             .skip(1)
-            .filter(|&v| self.contains(v))
+            .filter(|&v| {
+                self.contains(v)
+                    && (v == Variant::Miracle
+                        || !self.contains(Variant::Miracle)
+                        || !matches!(
+                            v,
+                            Variant::AntiKnight | Variant::AntiKing | Variant::NonConsecutive
+                        ))
+            })
             .map(|v| {
                 let full = v == Variant::Xv && self.xv == ClueMode::Full
                     || v == Variant::Kropki && self.kropki == ClueMode::Full;
@@ -185,7 +264,7 @@ impl Rules {
             names.join(" + ")
         }
     }
-    pub fn explanation(self) -> String {
+    pub fn descriptions(self) -> Vec<String> {
         let mut lines = vec!["Rows, columns and 3 × 3 boxes contain 1–9 once."];
         if self.killer {
             lines.push("Cages sum to their total, without repeats.");
@@ -212,7 +291,78 @@ impl Rules {
         if self.diagonal {
             lines.push("Both long diagonals contain 1–9 once.");
         }
-        lines.join(" ")
+        if self.arrow {
+            lines.push("Arrow shafts sum to the digit in their circle; repeats are allowed by normal rules.");
+        }
+        if self.renban {
+            lines.push("Purple Renban lines contain distinct consecutive digits, in any order.");
+        }
+        if self.whispers {
+            lines.push("Neighbours on green Whispers lines differ by at least 5.");
+        }
+        if self.region_sum {
+            lines.push("Box boundaries split blue region-sum lines into segments with equal sums.");
+        }
+        if self.palindrome {
+            lines.push("Grey palindrome lines read the same forwards and backwards.");
+        }
+        if self.between {
+            lines.push("Digits on orange between lines lie strictly between their two endpoints.");
+        }
+        if self.entropic {
+            lines.push("Every three neighbours on gold entropic lines include one digit from each of 1–3, 4–6 and 7–9.");
+        }
+        if self.sandwich {
+            lines.push("Outside sandwich clues sum the digits strictly between 1 and 9 in that row or column.");
+        }
+        if self.anti_knight {
+            lines.push("Equal digits cannot be a chess knight's move apart.");
+        }
+        if self.anti_king {
+            lines.push("Equal digits cannot touch diagonally.");
+        }
+        if self.non_consecutive {
+            lines.push("Orthogonal neighbours cannot be consecutive.");
+        }
+        lines.into_iter().map(str::to_owned).collect()
+    }
+    pub fn explanation(self) -> String {
+        self.descriptions().join(" ")
+    }
+    pub(super) fn pair_kind(self, a: usize, b: usize) -> Option<bool> {
+        let dr = (a / 9).abs_diff(b / 9);
+        let dc = (a % 9).abs_diff(b % 9);
+        if self.anti_knight && matches!((dr, dc), (1, 2) | (2, 1))
+            || self.anti_king && dr == 1 && dc == 1
+        {
+            Some(false)
+        } else if self.non_consecutive && dr + dc == 1 {
+            Some(true)
+        } else {
+            None
+        }
+    }
+    pub(super) fn global_pairs(self) -> &'static [(usize, usize, bool)] {
+        static PAIRS: std::sync::OnceLock<[Vec<(usize, usize, bool)>; 8]> =
+            std::sync::OnceLock::new();
+        let sets = PAIRS.get_or_init(|| {
+            std::array::from_fn(|flags| {
+                let rules = Self {
+                    anti_knight: flags & 1 != 0,
+                    anti_king: flags & 2 != 0,
+                    non_consecutive: flags & 4 != 0,
+                    ..Self::default()
+                };
+                (0..81)
+                    .flat_map(|a| {
+                        (a + 1..81).filter_map(move |b| rules.pair_kind(a, b).map(|nc| (a, b, nc)))
+                    })
+                    .collect()
+            })
+        });
+        &sets[usize::from(self.anti_knight)
+            + 2 * usize::from(self.anti_king)
+            + 4 * usize::from(self.non_consecutive)]
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -294,6 +444,10 @@ pub struct Puzzle {
     pub cages: Vec<Cage>,
     pub edges: Vec<Edge>,
     pub thermos: Vec<Vec<usize>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<Line>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sandwiches: Vec<Sandwich>,
     pub effort: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hard_rating: Option<HardRating>,
@@ -380,9 +534,18 @@ impl Puzzle {
         }) {
             return false;
         }
-        self.negative_pairs()
-            .iter()
-            .all(|&(a, b, xv, dots)| Self::unmarked_accepts(values[a], values[b], xv, dots))
+        self.rules().global_pairs().iter().all(|&(a, b, nc)| {
+            if nc {
+                values[a].abs_diff(values[b]) != 1
+            } else {
+                values[a] != values[b]
+            }
+        }) && self.lines.iter().all(|l| l.valid(values))
+            && self.sandwiches.iter().all(|c| c.valid(values))
+            && self
+                .negative_pairs()
+                .iter()
+                .all(|&(a, b, xv, dots)| Self::unmarked_accepts(values[a], values[b], xv, dots))
             && self
                 .edges
                 .iter()
@@ -479,6 +642,26 @@ impl Puzzle {
             {
                 return false;
             }
+        }
+        if self.lines.len() > 56
+            || self.sandwiches.len() > 18
+            || self
+                .lines
+                .iter()
+                .any(|l| !l.valid_shape() || !self.rules().contains(l.kind.variant()))
+        {
+            return false;
+        }
+        let mut sandwich_seen = Vec::new();
+        for c in &self.sandwiches {
+            if !self.rules().sandwich
+                || c.unit >= 18
+                || c.sum > 35
+                || sandwich_seen.contains(&c.unit)
+            {
+                return false;
+            }
+            sandwich_seen.push(c.unit);
         }
         self.complete_valid(&self.solution)
             && logical_solve(self, &self.givens, self.difficulty.level()).solved
@@ -901,6 +1084,197 @@ struct Save {
 mod tests {
     use super::*;
     #[test]
+    fn additional_variants_have_unique_logical_puzzles_at_every_difficulty() {
+        for variant in Variant::OPTIONS.into_iter().skip(6) {
+            for difficulty in Difficulty::ALL {
+                let p = Generator::new(17, variant, difficulty)
+                    .try_finish()
+                    .unwrap();
+                assert!(p.validated(), "{variant:?} {difficulty:?}");
+                let proof = logical_solve(&p, &p.givens, difficulty.level());
+                assert!(proof.solved);
+                assert_eq!(solution_count(&p, &p.givens, 10_000), Some(1));
+                assert_eq!(
+                    proof.masks.iter().map(|&m| digit(m)).collect::<Vec<_>>(),
+                    p.solution
+                );
+                for kind in LineKind::ALL {
+                    if p.rules().contains(kind.variant()) {
+                        assert!(p.lines.iter().any(|l| l.kind == kind));
+                    }
+                }
+                if p.rules().sandwich {
+                    assert!(!p.sandwiches.is_empty());
+                }
+                if difficulty == Difficulty::Hard {
+                    assert!(p.hard_rating.as_ref().unwrap().qualifies());
+                    assert!(
+                        logical_solve(&p, &p.givens, 2)
+                            .masks
+                            .iter()
+                            .filter(|m| m.count_ones() > 1)
+                            .count()
+                            >= 45
+                    );
+                }
+                let mut hidden = p.clone();
+                hidden.solution.fill(9);
+                assert_eq!(
+                    logical_solve(&hidden, &p.givens, difficulty.level()).masks,
+                    proof.masks
+                );
+                let saved = Game::new(p).encode();
+                assert_eq!(Game::restore(&saved).unwrap().encode(), saved);
+            }
+        }
+    }
+    #[test]
+    fn lines_outside_clues_and_old_rules_combine_without_hidden_answers() {
+        for rules in [
+            Rules {
+                arrow: true,
+                killer: true,
+                diagonal: true,
+                xv: ClueMode::Partial,
+                ..Rules::default()
+            },
+            Rules {
+                renban: true,
+                sandwich: true,
+                whispers: true,
+                ..Rules::default()
+            },
+            Rules {
+                arrow: true,
+                renban: true,
+                whispers: true,
+                region_sum: true,
+                palindrome: true,
+                between: true,
+                entropic: true,
+                ..Rules::default()
+            },
+            Rules {
+                anti_knight: true,
+                thermo: true,
+                ..Rules::default()
+            },
+        ] {
+            let p = Generator::with_rules(91, rules, Difficulty::Medium)
+                .try_finish()
+                .unwrap();
+            assert_eq!(p.rules(), rules);
+            assert!(p.validated());
+            assert_eq!(solution_count(&p, &p.givens, 10_000), Some(1));
+            let mut g = Game::new(p);
+            assert!(g.fill_classic_candidates());
+            let values = g.values();
+            for i in 0..81 {
+                if values[i] != 0 {
+                    continue;
+                }
+                let expected = (1..=9)
+                    .filter(|&d| {
+                        !values.iter().enumerate().any(|(j, &v)| {
+                            v == d
+                                && (i / 9 == j / 9
+                                    || i % 9 == j % 9
+                                    || i / 27 == j / 27 && i % 9 / 3 == j % 9 / 3)
+                        })
+                    })
+                    .fold(0, |m, d| m | bit(d));
+                assert_eq!(g.marks[i].corner, expected);
+            }
+            let (i, _) = g.hint().unwrap();
+            assert_eq!(g.marks[i].value, g.puzzle.solution[i]);
+        }
+    }
+    #[test]
+    fn new_save_constraints_reject_malformed_shapes_and_keep_legacy_json() {
+        let p = Generator::new(17, Variant::Arrow, Difficulty::Easy).finish();
+        for cells in [
+            vec![],
+            vec![0, 1, 81],
+            vec![0, 1, 1],
+            vec![0, 1, 8],
+            vec![0, 1, 2, 3, 4, 5, 6, 7, 8],
+        ] {
+            let mut bad = p.clone();
+            bad.lines[0].cells = cells;
+            assert!(Game::restore(&Game::new(bad).encode()).is_none());
+        }
+        let mut bad = p;
+        bad.rules.as_mut().unwrap().arrow = false;
+        assert!(!bad.validated());
+        let p = Generator::new(17, Variant::Sandwich, Difficulty::Easy).finish();
+        for (unit, sum) in [(18, 0), (0, 36)] {
+            let mut bad = p.clone();
+            bad.sandwiches[0] = Sandwich { unit, sum };
+            assert!(!bad.validated());
+        }
+        let mut bad = p;
+        bad.sandwiches.push(bad.sandwiches[0].clone());
+        assert!(!bad.validated());
+        let old = Game::new(
+            Generator::with_rules(
+                17,
+                Rules {
+                    diagonal: true,
+                    xv: ClueMode::Partial,
+                    ..Rules::default()
+                },
+                Difficulty::Easy,
+            )
+            .finish(),
+        )
+        .encode();
+        assert!(!old.contains("anti_knight"));
+        assert!(!old.contains("sandwiches"));
+        assert!(!old.contains("\"lines\""));
+        assert_eq!(Game::restore(&old).unwrap().encode(), old);
+    }
+    #[test]
+    fn miracle_is_a_preset_and_global_completion_search_remains_bounded() {
+        let mut r = Rules::default();
+        r.toggle(Variant::Miracle);
+        assert!(r.anti_knight && r.anti_king && r.non_consecutive);
+        assert_eq!(r.name(), "Miracle");
+        assert_eq!(r.primary(), Variant::Miracle);
+        r.toggle(Variant::AntiKing);
+        assert!(!r.contains(Variant::Miracle));
+        r.toggle(Variant::Miracle);
+        assert_eq!(r.name(), "Miracle");
+        r.toggle(Variant::Miracle);
+        assert_eq!(r, Rules::default());
+        let rules = Rules {
+            diagonal: true,
+            anti_knight: true,
+            ..Rules::default()
+        };
+        let mut generator = Generator::with_rules(17, rules, Difficulty::Easy);
+        // Filling a constrained solution is resumable from the first step.
+        assert!(!generator.step());
+        let mut steps = 1;
+        while !generator.step() {
+            steps += 1;
+            assert!(steps < 2_000_000);
+        }
+        if let Ok(p) = generator.try_finish() {
+            assert!(p.validated());
+            assert_eq!(p.rules(), rules);
+        }
+        for seed in [0, 1, 91] {
+            let p = Generator::new(seed, Variant::Miracle, Difficulty::Easy).finish();
+            assert!(p.complete_valid(&p.solution));
+            assert_eq!(
+                p.solution,
+                Generator::new(seed, Variant::Miracle, Difficulty::Easy)
+                    .finish()
+                    .solution
+            );
+        }
+    }
+    #[test]
     fn combined_rules_generate_unique_puzzles_at_all_supported_clue_settings() {
         for killer in [false, true] {
             for xv in [ClueMode::Off, ClueMode::Partial, ClueMode::Full] {
@@ -913,6 +1287,7 @@ mod tests {
                                 kropki,
                                 thermo,
                                 diagonal,
+                                ..Rules::default()
                             };
                             for difficulty in [Difficulty::Easy, Difficulty::Medium] {
                                 let p = Generator::with_rules(17, rules, difficulty)
@@ -1027,6 +1402,7 @@ mod tests {
                 kropki: ClueMode::Partial,
                 thermo: true,
                 diagonal: true,
+                ..Rules::default()
             },
         ];
         for rules in cases {
