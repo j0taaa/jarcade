@@ -466,6 +466,19 @@ impl Game {
         self.redo.clear();
         true
     }
+    /// Mechanical cleanup only: no variant peers, deductions or new notes.
+    fn clear_peer_notes(&mut self, cell: usize, number: u8) {
+        let keep = !bit(number);
+        for (i, mark) in self.marks.iter_mut().enumerate() {
+            if i / 9 == cell / 9
+                || i % 9 == cell % 9
+                || (i / 27 == cell / 27 && i % 9 / 3 == cell % 9 / 3)
+            {
+                mark.corner &= keep;
+                mark.centre &= keep;
+            }
+        }
+    }
     pub fn enter(&mut self, selected: &[usize], number: u8, tool: Tool) -> bool {
         if !(1..=9).contains(&number) {
             return false;
@@ -507,6 +520,9 @@ impl Game {
                 }
                 Tool::Colour => m.colour = if remove { 0 } else { number },
                 _ => {}
+            }
+            if tool == Tool::Digit && !remove {
+                self.clear_peer_notes(i, number);
             }
         }
         self.finish(before)
@@ -580,6 +596,7 @@ impl Game {
         self.marks[step.cell].value = step.value;
         self.marks[step.cell].corner = 0;
         self.marks[step.cell].centre = 0;
+        self.clear_peer_notes(step.cell, step.value);
         self.finish(before);
         self.hints += 1;
         Some((
@@ -783,6 +800,154 @@ mod tests {
         assert_eq!(g.values()[given], g.puzzle.givens[given]);
     }
     #[test]
+    fn entering_digits_clears_both_note_styles_in_classic_peers_only() {
+        for variant in Variant::ALL {
+            for number in 1..=9 {
+                let mut g = game();
+                g.puzzle.variant = variant;
+                g.puzzle.givens.fill(0);
+                // Variant-only peers (diagonal r5c5, a cage and a thermometer)
+                // must not affect this mechanical row/column/box cleanup.
+                g.puzzle.cages = vec![Cage {
+                    cells: vec![0, 40],
+                    sum: 10,
+                }];
+                g.puzzle.thermos = vec![vec![0, 40]];
+                g.marks.fill(Mark {
+                    corner: ALL_DIGITS,
+                    centre: ALL_DIGITS,
+                    colour: 4,
+                    value: 0,
+                });
+                let before = g.marks.clone();
+                assert!(g.enter(&[0], number, Tool::Digit));
+                assert_eq!(g.undo.len(), 1);
+                for i in 0..81 {
+                    let peer = i / 9 == 0 || i % 9 == 0 || (i / 27 == 0 && i % 9 / 3 == 0);
+                    let expected = if i == 0 {
+                        0
+                    } else if peer {
+                        ALL_DIGITS & !bit(number)
+                    } else {
+                        ALL_DIGITS
+                    };
+                    assert_eq!(
+                        g.marks[i].corner, expected,
+                        "{variant:?} digit {number} cell {i}"
+                    );
+                    assert_eq!(g.marks[i].centre, expected);
+                    assert_eq!(g.marks[i].colour, 4);
+                    assert_eq!(g.marks[i].value, if i == 0 { number } else { 0 });
+                }
+                let after = g.marks.clone();
+                assert!(g.undo());
+                assert_eq!(g.marks, before);
+                assert!(g.redo());
+                assert_eq!(g.marks, after);
+            }
+        }
+    }
+    #[test]
+    fn note_cleanup_groups_multi_cell_entries_and_handles_replacement_and_removal() {
+        let mut g = game();
+        g.puzzle.givens.fill(0);
+        g.marks.fill(Mark {
+            corner: ALL_DIGITS,
+            centre: ALL_DIGITS,
+            ..Mark::default()
+        });
+        let before = g.marks.clone();
+        assert!(g.enter(&[0, 40, 80, 40, 81], 5, Tool::Digit));
+        assert_eq!(g.undo.len(), 1);
+        for i in 0..81 {
+            let selected = [0, 40, 80].contains(&i);
+            let peer = [0, 40, 80].iter().any(|&j| {
+                i / 9 == j / 9 || i % 9 == j % 9 || (i / 27 == j / 27 && i % 9 / 3 == j % 9 / 3)
+            });
+            let expected = if selected {
+                0
+            } else if peer {
+                ALL_DIGITS & !bit(5)
+            } else {
+                ALL_DIGITS
+            };
+            assert_eq!(g.marks[i].corner, expected);
+            assert_eq!(g.marks[i].centre, expected);
+        }
+        let after = g.marks.clone();
+        g.undo();
+        assert_eq!(g.marks, before);
+        g.redo();
+        assert_eq!(g.marks, after);
+        // Removing a digit never recreates notes or performs more eliminations.
+        assert!(g.enter(&[0, 40, 80], 5, Tool::Digit));
+        for (a, b) in g.marks.iter().zip(&after) {
+            assert_eq!((a.corner, a.centre), (b.corner, b.centre));
+        }
+        g.enter(&[0], 5, Tool::Digit);
+        assert!(g.enter(&[0], 6, Tool::Digit));
+        assert_eq!(g.marks[1].corner, ALL_DIGITS & !(bit(5) | bit(6)));
+        assert_eq!(g.marks[1].centre, ALL_DIGITS & !(bit(5) | bit(6)));
+    }
+    #[test]
+    fn notes_and_colours_do_not_clean_peers_and_givens_and_lookup_are_inert() {
+        let mut g = game();
+        let given = g.puzzle.givens.iter().position(|&v| v != 0).unwrap();
+        let i = g.puzzle.givens.iter().position(|&v| v == 0).unwrap();
+        g.marks[i].corner = ALL_DIGITS;
+        g.marks[i].centre = ALL_DIGITS;
+        let before = g.marks.clone();
+        assert!(!g.enter(&[], 5, Tool::Digit));
+        assert!(!g.enter(&[given, 81], 5, Tool::Digit));
+        assert_eq!(g.marks, before);
+        for tool in [Tool::Corner, Tool::Centre, Tool::Colour] {
+            let before = g.marks.clone();
+            g.enter(&[i], 5, tool);
+            for (j, mark) in before.iter().enumerate() {
+                if j != i {
+                    assert_eq!(g.marks[j], *mark);
+                }
+            }
+        }
+    }
+    #[test]
+    fn hints_clean_notes_in_one_saved_action_with_undo_and_redo() {
+        for variant in Variant::ALL {
+            let mut g = Game::new(Generator::new(51, variant, Difficulty::Medium).finish());
+            let blanks: Vec<_> = (0..81).filter(|&i| g.puzzle.givens[i] == 0).collect();
+            for number in 1..=9 {
+                g.enter(&blanks, number, Tool::Corner);
+                g.enter(&blanks, number, Tool::Centre);
+            }
+            let before = g.marks.clone();
+            let count = g.undo.len();
+            let (cell, _) = g.hint().unwrap();
+            let number = g.marks[cell].value;
+            for &i in &blanks {
+                let peer = i / 9 == cell / 9
+                    || i % 9 == cell % 9
+                    || (i / 27 == cell / 27 && i % 9 / 3 == cell % 9 / 3);
+                let expected = if i == cell {
+                    0
+                } else if peer {
+                    ALL_DIGITS & !bit(number)
+                } else {
+                    ALL_DIGITS
+                };
+                assert_eq!(g.marks[i].corner, expected);
+                assert_eq!(g.marks[i].centre, expected);
+            }
+            assert_eq!(g.undo.len(), count + 1);
+            let after = g.marks.clone();
+            let mut restored = Game::restore(&g.encode()).unwrap();
+            assert_eq!(restored.marks, after);
+            restored.undo();
+            assert_eq!(restored.marks, before);
+            restored.redo();
+            assert_eq!(restored.marks, after);
+        }
+    }
+    #[test]
     fn grouped_notes_toggle_as_one_action_and_new_actions_clear_redo() {
         let mut g = game();
         let cells: Vec<_> = g
@@ -894,7 +1059,16 @@ mod tests {
         let mut restored = Game::restore(&before).unwrap();
         assert_eq!(restored.candidate_cells(2), cells[..3]);
         restored.enter(&[cells[2]], 2, Tool::Digit);
-        assert_eq!(restored.candidate_cells(2), cells[..2]);
+        let remaining: Vec<_> = cells[..2]
+            .iter()
+            .copied()
+            .filter(|&i| {
+                i / 9 != cells[2] / 9
+                    && i % 9 != cells[2] % 9
+                    && (i / 27 != cells[2] / 27 || i % 9 / 3 != cells[2] % 9 / 3)
+            })
+            .collect();
+        assert_eq!(restored.candidate_cells(2), remaining);
         assert!(restored.revealed_cells(2).contains(&cells[2]));
         restored.undo();
         assert_eq!(restored.candidate_cells(2), cells[..3]);

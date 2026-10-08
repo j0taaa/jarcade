@@ -49,6 +49,19 @@ function verify(before,after){
         const filled=await raw();await key('n');assert.equal(await raw(),filled,'Shortcut cannot refill after use');
         await key('Control+z');assert.deepEqual((await game()).marks,before.marks);assert.equal((await game()).initial_notes_available,false);const undone=await raw();await key('n');assert.equal(await raw(),undone,'Undo cannot reopen setup');
         await key('Control+y');assert.deepEqual((await game()).marks,after.marks);
+        // Large digits clean only classic peer notes, in the same saved undo action.
+        await key('Control+Shift+a');const enteredCell=blank[0],number=after.puzzle.solution[enteredCell];
+        const isPeer=j=>Math.floor(j/9)===Math.floor(enteredCell/9)||j%9===enteredCell%9||(Math.floor(j/27)===Math.floor(enteredCell/27)&&Math.floor(j%9/3)===Math.floor(enteredCell%9/3));
+        const noteCell=blank.find(j=>j!==enteredCell&&isPeer(j));assert.notEqual(noteCell,undefined);
+        await tap(l.cell(noteCell));await key('c');await key(String(number));await key('Control+Shift+a');await tap(l.cell(enteredCell));await key('z');
+        const withCentre=await game();
+        if(w===1440)await key(String(number));else await tap(l.number(number));
+        const entered=await game(),expectedEntry=withCentre.marks.map((m,j)=>j===enteredCell?[number,0,0,m[3]]:isPeer(j)?[m[0],m[1]&~(1<<(number-1)),m[2]&~(1<<(number-1)),m[3]]:m.slice());
+        assert.deepEqual(entered.marks,expectedEntry,'Digit entry clears matching corner/centre notes only in row, column and box');assert.equal(entered.undo.length,withCentre.undo.length+1);
+        await key('Control+z');assert.deepEqual((await game()).marks,withCentre.marks);await key('Control+y');assert.deepEqual((await game()).marks,entered.marks);
+        const digitSave=await raw();await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');assert.equal(await raw(),digitSave,'Cleanup persists with its entry');
+        await key('Control+z');assert.deepEqual((await game()).marks,withCentre.marks);await key('Control+z');assert.deepEqual((await game()).marks,after.marks);
+        await key('x');
         if(w===1440){await key('Tab');for(let f=0;f<16;f++)await key('Tab');await ready('Focused control: Undo.');await key('Enter');assert.deepEqual((await game()).marks,before.marks);await tap(l.action(1));}
         // Generated notes still participate in digit lookup.
         await key('Control+Shift+a');const digit=Array.from({length:9},(_,n)=>n+1).find(n=>masks.some(mask=>mask&(1<<(n-1))));assert(digit);const beforeLookup=await raw();await key(String(digit));const matches=masks.map((mask,i)=>mask&(1<<(digit-1))?i:-1).filter(i=>i>=0).map(i=>`r${Math.floor(i/9)+1}c${i%9+1}`).join(', ');await ready(`Candidate digit ${digit}: ${matches}.`);assert.equal(await raw(),beforeLookup);
@@ -66,6 +79,6 @@ function verify(before,after){
       }
       await c.close();console.log(`Fill notes passed: ${w}×${h}, ${saver?'black':'white'}`);
     }
-    assert.deepEqual(errors,[]);console.log('Classic-only starting candidates in all six variants, one-time wand, first-edit lockout, undo/reload lockout, new-puzzle reset, expanded eraser, keyboard focus, lookup, persistence, responsive layouts and idle rendering passed.');
+    assert.deepEqual(errors,[]);console.log('Classic-only starting candidates in all six variants, one-time wand, first-edit lockout, undo/reload lockout, new-puzzle reset, expanded eraser, keyboard focus, lookup, automatic classic peer-note cleanup for touch/keyboard entry, atomic undo/redo, persistence, responsive layouts and idle rendering passed.');
   }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

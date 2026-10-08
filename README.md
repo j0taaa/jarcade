@@ -543,6 +543,11 @@ after undo, reset or reload. Selecting cells, highlighting numbers, changing
 tools and zooming do not consume it. The notes are one undoable, saved action;
 only a new puzzle offers the wand again.
 
+Entering a large digit (including double-tap entry or a hint) removes that
+digit from both note styles in its row, column and 3×3 box, without applying
+variant rules or other deductions. Entry and cleanup undo/redo together.
+Erasing or replacing a digit does not recreate previously removed notes.
+
 Incorrect digits turn red and show a warning immediately, including after
 undo/redo or resuming a save. Correcting or erasing them clears the warning.
 **Check (K)** also checks the board; **Hint (H)** explains and enters the
