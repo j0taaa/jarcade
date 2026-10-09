@@ -33,3 +33,5 @@
 - Sudoku’s bottom actions are Undo, Redo, Hint and Reset only; do not restore the redundant Check or 1:1 buttons.
 
 - Web navigation uses shareable routes for categories, settings, games, puzzle setup/play, and Fih rooms. Preserve sessions on history navigation and old room invites. Mobile Back opens the shared sidebar first; another Back can leave or traverse history. Keep navigation event-driven and app settings on the launch screen.
+
+- Sudoku number-pad digits turn grey once nine visible givens/large entries contain that digit; ignore pencil notes and hidden answers, restore their colour after edits/undo, and keep digit lookup and the colour palette usable.

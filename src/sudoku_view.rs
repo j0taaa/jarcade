@@ -294,6 +294,15 @@ impl SudokuPage {
         let marks = self.game.as_ref().map_or(&[][..], |g| g.marks.as_slice());
         art::draw_board(ui, p, marks, art::Highlights::default(), r, true);
     }
+    fn completed_numbers(&self) -> [bool; 9] {
+        let mut counts = [0u8; 10];
+        if let Some(game) = &self.game {
+            for value in game.values() {
+                counts[value as usize] += 1;
+            }
+        }
+        std::array::from_fn(|i| counts[i + 1] >= 9)
+    }
     fn focused_label(&self, i: usize) -> Option<String> {
         if self.modal == Modal::GenerationFailed {
             return (i == 0).then(|| "Edit rules".into());
@@ -353,7 +362,15 @@ impl SudokuPage {
             }
         } else {
             if i < 11 {
-                return Some(format!("{}", i - 1));
+                return Some(
+                    if self.completed_numbers()[i - 2]
+                        && (self.tool != Tool::Colour || self.selected.is_empty())
+                    {
+                        format!("{}: all nine instances filled", i - 1)
+                    } else {
+                        format!("{}", i - 1)
+                    },
+                );
             }
             if i < 15 {
                 return Some(Tool::ALL[i - 11].name().into());
@@ -1018,11 +1035,17 @@ impl SudokuPage {
     }
     fn controls(&mut self, ui: &mut Ui, l: &Layout) -> Option<Pulse> {
         let mut pulse = None;
+        let completed = self.completed_numbers();
         for d in 1..=9 {
             let r = l.number(d);
             let active = self.highlighted_digit == Some(d as u8);
-            let hit = button(ui, r, active);
-            if self.tool == Tool::Colour && !self.selected.is_empty() {
+            let palette = self.tool == Tool::Colour && !self.selected.is_empty();
+            let dimmed = completed[d - 1] && !palette;
+            let hit = button(ui, r, active && !dimmed);
+            if active && dimmed {
+                bordered(r, 10., ui.theme.accent, ui.theme.bg);
+            }
+            if palette {
                 rounded(
                     Rect::new(r.x + 7., r.y + 7., r.w - 14., r.h - 14.),
                     8.,
@@ -1033,7 +1056,9 @@ impl SudokuPage {
                     &d.to_string(),
                     r,
                     24.,
-                    if active && !ui.theme.saver {
+                    if dimmed {
+                        color_u8!(140, 140, 140, 255)
+                    } else if active && !ui.theme.saver {
                         WHITE
                     } else {
                         ui.theme.accent
@@ -1658,6 +1683,57 @@ mod tests {
         missing.navigate(true);
         assert!(!missing.playing());
         assert!(missing.generator.is_none());
+    }
+    #[test]
+    fn completed_numbers_follow_visible_digits_notes_and_undo_without_exposing_answers() {
+        let mut page = page();
+        let g = page.game.as_mut().unwrap();
+        let number = (1..=9).find(|&n| g.revealed_cells(n).len() < 8).unwrap();
+        let cells: Vec<_> = (0..81)
+            .filter(|&i| g.puzzle.givens[i] == 0 && g.puzzle.solution[i] == number)
+            .collect();
+        let last = *cells.last().unwrap();
+        g.enter(&cells, number, Tool::Corner);
+        g.enter(&cells, number, Tool::Centre);
+        assert!(!page.completed_numbers()[number as usize - 1]);
+        page.game
+            .as_mut()
+            .unwrap()
+            .enter(&cells[..cells.len() - 1], number, Tool::Digit);
+        assert!(!page.completed_numbers()[number as usize - 1]);
+        page.game
+            .as_mut()
+            .unwrap()
+            .enter(&[last], number, Tool::Digit);
+        assert!(page.completed_numbers()[number as usize - 1]);
+        assert!(
+            page.focused_label(number as usize + 1)
+                .unwrap()
+                .contains("all nine")
+        );
+        let filled = page.game.as_ref().unwrap().encode();
+        page.selected.clear();
+        page.enter_number(number, Tool::Digit);
+        assert_eq!(page.highlighted_digit, Some(number));
+        assert_eq!(page.game.as_ref().unwrap().encode(), filled);
+        page.game.as_mut().unwrap().erase(&[last], Tool::Digit);
+        assert!(!page.completed_numbers()[number as usize - 1]);
+        page.game.as_mut().unwrap().undo();
+        assert!(page.completed_numbers()[number as usize - 1]);
+        page.game.as_mut().unwrap().redo();
+        assert!(!page.completed_numbers()[number as usize - 1]);
+        page.game.as_mut().unwrap().undo();
+        let extra = (0..81)
+            .find(|&i| page.game.as_ref().unwrap().puzzle.givens[i] == 0 && !cells.contains(&i))
+            .unwrap();
+        page.game
+            .as_mut()
+            .unwrap()
+            .enter(&[extra], number, Tool::Digit);
+        assert!(page.completed_numbers()[number as usize - 1]);
+        assert_eq!(page.game.as_ref().unwrap().revealed_cells(number).len(), 10);
+        page.game.as_mut().unwrap().reset();
+        assert!(!page.completed_numbers()[number as usize - 1]);
     }
     #[test]
     fn fill_notes_action_works_without_selection_and_preserves_digit_lookup() {
