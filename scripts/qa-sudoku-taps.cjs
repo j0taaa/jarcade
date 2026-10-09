@@ -51,7 +51,7 @@ const base=process.env.JARCADE_QA_URL||'http://127.0.0.1:8092';
       await key('Control+Shift+a');await p.mouse.move(...l.cell(i));await p.mouse.wheel(0,-100);await p.waitForTimeout(100);const beforePan=await raw();
       await p.mouse.down();await p.mouse.move(l.cell(i)[0]+25,l.cell(i)[1]+25,{steps:6});await p.mouse.move(...l.cell(i),{steps:6});await p.mouse.up();await p.waitForTimeout(90);assert.equal(await raw(),beforePan);
       await doubleTap(l.cell(i));assert.equal((await game()).marks[i][0],correct);await p.mouse.move(...l.cell(40));await p.mouse.wheel(0,1000);await p.waitForTimeout(100);
-      const final=await raw();await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');assert.equal(await raw(),final);
+      const final=await raw();await p.reload();await ready('Digit mode');assert.equal(await raw(),final);
       await tap([w-30,30]);await ready('Rules.');await p.screenshot({path:`/tmp/jarcade-sudoku-tap-help-${w}-${saver}.png`});await key('Escape');await ready('Digit mode');
       await p.waitForTimeout(350);const frames=await p.evaluate(()=>window.__frames);await p.waitForTimeout(400);assert.equal(await p.evaluate(()=>window.__frames),frames,'Tap handling must not force idle redraws');
       await c.close();console.log(`Tap controls passed: ${w}×${h}, ${saver?'black':'white'}`);

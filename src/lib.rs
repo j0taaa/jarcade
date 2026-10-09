@@ -11,6 +11,7 @@ pub mod fps;
 pub mod layout;
 pub mod minesweeper;
 pub mod multiplayer;
+pub mod navigation;
 pub mod nonograms;
 pub mod settings;
 pub mod snake;

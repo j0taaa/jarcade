@@ -59,7 +59,7 @@ function verify(before,after){
         const entered=await game(),expectedEntry=withCentre.marks.map((m,j)=>j===enteredCell?[number,0,0,m[3]]:isPeer(j)?[m[0],m[1]&~(1<<(number-1)),m[2]&~(1<<(number-1)),m[3]]:m.slice());
         assert.deepEqual(entered.marks,expectedEntry,'Digit entry clears matching corner/centre notes only in row, column and box');assert.equal(entered.undo.length,withCentre.undo.length+1);
         await key('Control+z');assert.deepEqual((await game()).marks,withCentre.marks);await key('Control+y');assert.deepEqual((await game()).marks,entered.marks);
-        const digitSave=await raw();await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');assert.equal(await raw(),digitSave,'Cleanup persists with its entry');
+        const digitSave=await raw();await p.reload();await ready('Digit mode');assert.equal(await raw(),digitSave,'Cleanup persists with its entry');
         await key('Control+z');assert.deepEqual((await game()).marks,withCentre.marks);await key('Control+z');assert.deepEqual((await game()).marks,after.marks);
         await key('x');
         if(w===1440){await key('Tab');for(let f=0;f<16;f++)await key('Tab');await ready('Focused control: Undo.');await key('Enter');assert.deepEqual((await game()).marks,before.marks);await tap(l.action(1));}
@@ -67,7 +67,7 @@ function verify(before,after){
         await key('Control+Shift+a');const digit=Array.from({length:9},(_,n)=>n+1).find(n=>masks.some(mask=>mask&(1<<(n-1))));assert(digit);const beforeLookup=await raw();await key(String(digit));const matches=masks.map((mask,i)=>mask&(1<<(digit-1))?i:-1).filter(i=>i>=0).map(i=>`r${Math.floor(i/9)+1}c${i%9+1}`).join(', ');await ready(`Candidate digit ${digit}: ${matches}.`);assert.equal(await raw(),beforeLookup);
         // Eraser expands into the wand's old space when the wand disappears.
         const eraseCell=masks.findIndex(mask=>mask);await tap(l.cell(eraseCell));await tap(l.candidates);const erased=await game();const expected=after.marks.map(m=>m.slice());expected[eraseCell][1]=0;assert.deepEqual(erased.marks,expected);
-        const stored=await raw();await key('n');assert.equal(await raw(),stored);await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');assert.equal(await raw(),stored);await key('n');assert.equal(await raw(),stored,'Reload cannot reopen setup');
+        const stored=await raw();await key('n');assert.equal(await raw(),stored);await p.reload();await ready('Digit mode');assert.equal(await raw(),stored);await key('n');assert.equal(await raw(),stored,'Reload cannot reopen setup');
         await tap([w-30,30]);await ready('Rules.');if(variant===0)await p.screenshot({path:`/tmp/jarcade-sudoku-fill-notes-help-${w}-${saver}.png`});await key('Escape');await ready('Digit mode');
         await p.waitForTimeout(350);const frames=await p.evaluate(()=>window.__frames);await p.waitForTimeout(400);assert.equal(await p.evaluate(()=>window.__frames),frames,'Fill notes must not force idle redraws');
         await key('Escape');await ready('Choose a variant');
@@ -75,7 +75,7 @@ function verify(before,after){
         await tap(setup(w,h,true).new);await ready('Digit mode');g=await game();assert.equal(g.initial_notes_available,true);
         const first=g.puzzle.givens.findIndex(v=>!v);await tap(l.cell(first));await key(variant%2?'x':'z');await key(String(g.puzzle.solution[first]));assert.equal((await game()).initial_notes_available,false);
         await key('Control+z');const manualUndo=await raw();await key('n');assert.equal(await raw(),manualUndo,'First manual edit permanently disables the wand');
-        await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');await key('n');assert.equal(await raw(),manualUndo);await key('Escape');await ready('Choose a variant');
+        await p.reload();await ready('Digit mode');await key('n');assert.equal(await raw(),manualUndo);await key('Escape');await ready('Choose a variant');
       }
       await c.close();console.log(`Fill notes passed: ${w}×${h}, ${saver?'black':'white'}`);
     }

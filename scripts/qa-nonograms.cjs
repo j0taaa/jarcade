@@ -100,8 +100,7 @@ const clueGeometry = (w, h, side, left, top) => {
     for(let i=0;i<25 && !(await label(p)).includes('Picture complete');i++){await p.keyboard.press('h');await p.waitForTimeout(35);}
     assert((await label(p)).includes('Picture complete: Heart'));
     await idle(p);await p.screenshot({path:`${artifacts}/completed.png`,scale:'css'});
-    await p.reload();await p.waitForFunction(()=>!document.getElementById('loading'));await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Completed'));
-    await p.touchscreen.tap(...setup(390,844).play);await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Picture complete: Heart'));
+    await p.reload();await p.waitForFunction(()=>!document.getElementById('loading'));await p.waitForFunction(()=>document.querySelector('canvas').getAttribute('aria-label').includes('Picture complete: Heart'));
     await idle(p);await c.close();assert.deepEqual(errors,[]);
     console.log('Nonograms: fast drag painting, whole-stroke undo, pinch rollback, hints/reset, full win, offline restore and idle frames passed.');
   } finally {await browser.close();}

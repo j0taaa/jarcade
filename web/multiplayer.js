@@ -25,8 +25,8 @@
       env.jarcade_online_poll=(p,n)=>queue.length?copy(p,n,queue.shift()):0;
       env.jarcade_session_load=(p,n)=>{try{return copy(p,n,localStorage.getItem("jarcade.online.v1")||"");}catch{return 0;}};
       env.jarcade_session_save=(p,n)=>{try{localStorage.setItem("jarcade.online.v1",decode(p,n));return 1;}catch{return 0;}};
-      env.jarcade_invite_load=(p,n)=>copy(p,n,JSON.stringify({game:new URLSearchParams(location.search).get("game"),room:new URLSearchParams(location.search).get("room")}));
-      env.jarcade_copy_invite=(p,n)=>{const data=JSON.parse(decode(p,n));const url=new URL(location.href);url.search="";url.searchParams.set("game",data.game);url.searchParams.set("room",data.room);navigator.clipboard?.writeText(url.href).catch(()=>{});};
+      env.jarcade_invite_load=(p,n)=>copy(p,n,JSON.stringify({game:({coupe:"court",dicksit:"reverie",wolvesville:"wolves",codenames:"codenames"})[location.pathname.split("/")[2]]||new URLSearchParams(location.search).get("game"),room:new URLSearchParams(location.search).get("room")}));
+      env.jarcade_copy_invite=(p,n)=>{const data=JSON.parse(decode(p,n));const url=new URL(location.href);url.pathname="/games/"+({court:"coupe",reverie:"dicksit",wolves:"wolvesville",codenames:"codenames"})[data.game];url.hash="";url.search="";url.searchParams.set("room",data.room);navigator.clipboard?.writeText(url.href).catch(()=>{});};
       env.jarcade_editor_open=(p,n,id,x,y,w,h,max)=>{
         const value=decode(p,n); const bounds=document.getElementById("glcanvas").getBoundingClientRect(); x+=bounds.left; y+=bounds.top; hideEditor(); const input=document.createElement("input");editor=input;
         input.id="jarcade-text-editor";input.jarcadeField=id;input.value=value;input.maxLength=max;input.autocomplete="off";input.spellcheck=id>=2;input.enterKeyHint="done";input.setAttribute("aria-label",["Player name","Room code","Story clue","First extreme","Second extreme","Message","One-word clue"][id]);

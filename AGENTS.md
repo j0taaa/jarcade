@@ -31,3 +31,5 @@
 - Sudoku has a visible in-game Rules button opening a plain popup of only the active puzzle rules, including line colours. Long lists scroll; keep selection and progress unchanged.
 
 - Sudoku’s bottom actions are Undo, Redo, Hint and Reset only; do not restore the redundant Check or 1:1 buttons.
+
+- Web navigation uses shareable routes for categories, settings, games, puzzle setup/play, and Fih rooms. Preserve sessions on history navigation and old room invites. Mobile Back opens the shared sidebar first; another Back can leave or traverse history. Keep navigation event-driven and app settings on the launch screen.

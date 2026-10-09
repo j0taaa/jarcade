@@ -723,34 +723,6 @@ pub fn copy_invite(game: jarcade::multiplayer::GameKind, room: &str) {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (game, room);
 }
-pub fn launch_wavelength() -> bool {
-    launch_local_game("wavelength")
-}
-pub fn launch_table_tennis() -> bool {
-    launch_local_game("table-tennis")
-}
-pub fn launch_nonograms() -> bool {
-    launch_local_game("nonograms")
-}
-pub fn launch_sudoku() -> bool {
-    launch_local_game("sudoku")
-}
-fn launch_local_game(game: &str) -> bool {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let mut data = [0u8; 256];
-        // SAFETY: bundled adapter bounds its synchronous copy to this buffer.
-        let n = unsafe { jarcade_invite_load(data.as_mut_ptr(), data.len()) }.min(data.len());
-        serde_json::from_slice::<serde_json::Value>(&data[..n])
-            .ok()
-            .is_some_and(|v| v["game"] == game)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = game;
-        false
-    }
-}
 pub fn editor_open(value: &str, id: usize, rect: macroquad::prelude::Rect, max: usize) {
     #[cfg(target_arch = "wasm32")]
     // SAFETY: copies value synchronously; geometry is in CSS/logical points.
@@ -814,4 +786,66 @@ pub fn editor_poll() -> Option<Edit> {
     {
         None
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    fn jarcade_route_load(p: *mut u8, n: usize) -> usize;
+    fn jarcade_route_poll(p: *mut u8, n: usize) -> usize;
+    fn jarcade_route_sync(p: *const u8, n: usize, replace: i32);
+    fn jarcade_route_drawer(open: i32);
+}
+#[derive(serde::Deserialize)]
+pub struct Navigation {
+    pub route: String,
+    pub drawer: bool,
+}
+pub fn route_load() -> Option<jarcade::navigation::Route> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut data = [0u8; 256];
+        // SAFETY: adapter writes at most the live buffer capacity.
+        let n = unsafe { jarcade_route_load(data.as_mut_ptr(), data.len()) }.min(data.len());
+        jarcade::navigation::Route::parse(std::str::from_utf8(&data[..n]).ok()?)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+pub fn route_poll() -> Option<Navigation> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut data = [0u8; 512];
+        // SAFETY: adapter bounds its synchronous write to this buffer.
+        let n = unsafe { jarcade_route_poll(data.as_mut_ptr(), data.len()) }.min(data.len());
+        serde_json::from_slice(&data[..n]).ok()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+pub fn route_sync(route: jarcade::navigation::Route, replace: bool) {
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: adapter copies the static UTF-8 slice synchronously.
+    unsafe {
+        jarcade_route_sync(
+            route.path().as_ptr(),
+            route.path().len(),
+            i32::from(replace),
+        );
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (route, replace);
+}
+pub fn route_drawer(open: bool) {
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: scalar boolean accepted by the bundled history adapter.
+    unsafe {
+        jarcade_route_drawer(i32::from(open));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = open;
 }

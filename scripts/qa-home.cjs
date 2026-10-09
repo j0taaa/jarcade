@@ -64,7 +64,7 @@ function gallery(w, h) {
       await idle(); assert.equal(await p.evaluate(() => window.__sockets), 0, 'Opening a room menu alone should not connect');
       if (w === 320 && !saver) {
         await p.goto(base); await p.waitForFunction(() => !document.getElementById('loading')); await waitHome();
-        for(let i=0;i<8;i++) { await p.keyboard.press('Tab'); await p.waitForTimeout(50); }
+        for(let i=0;i<9;i++) { await p.keyboard.press('Tab'); await p.waitForTimeout(50); }
         await p.screenshot({path:`${artifacts}/keyboard-last-card.png`,scale:'css'});
         await p.keyboard.press('Enter');
         await p.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').startsWith('Jarcade. Nonograms.'));

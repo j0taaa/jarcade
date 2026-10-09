@@ -23,6 +23,7 @@ use jarcade::{
     feedback::{Feedback, Pulse},
     fps::FpsCounter,
     layout::Layout,
+    navigation::Route,
     settings::Settings,
     snake::{Cell, Direction, Snake, Status},
     snake_input::{SnakeInput, controls},
@@ -49,6 +50,9 @@ enum Screen {
 #[derive(Clone, Copy)]
 enum Action {
     None,
+    Menu,
+    CloseMenu,
+    Navigate(Route),
     Home,
     Settings,
     NewGame,
@@ -97,6 +101,7 @@ fn window_conf() -> macroquad::conf::Conf {
 
 struct App {
     screen: Screen,
+    drawer: bool,
     settings: Settings,
     game: Snake,
     clock: TickClock,
@@ -129,6 +134,7 @@ impl App {
         let fih_preview = FihPreview::new(&fih.pet, settings.power_saver);
         Self {
             screen: Screen::Home,
+            drawer: false,
             online: online_view::OnlinePage::new(),
             wavelength: wavelength_view::WavelengthPage::new(seed()),
             tennis: table_tennis_view::TennisPage::new(seed()),
@@ -152,6 +158,221 @@ impl App {
             save_failed: false,
             haptics_supported: platform::haptics_supported(),
         }
+    }
+    fn route(&self) -> Route {
+        use jarcade::{fih::Room, multiplayer::GameKind};
+        match self.screen {
+            Screen::Home => {
+                if self.multiplayer {
+                    Route::Multiplayer
+                } else {
+                    Route::SinglePlayer
+                }
+            }
+            Screen::Settings => Route::Settings,
+            Screen::Game => Route::Snake,
+            Screen::Mines => {
+                if self.mines.configuring {
+                    Route::Mines
+                } else {
+                    Route::MinesPlay
+                }
+            }
+            Screen::Fih => match self.fih.room() {
+                Room::Kitchen => Route::Kitchen,
+                Room::Bathroom => Route::Bathroom,
+                Room::Bedroom => Route::Bedroom,
+                Room::Playroom => Route::Playroom,
+                Room::Clinic => Route::Clinic,
+            },
+            Screen::Multiplayer => match self.online.game {
+                GameKind::Court => Route::Coupe,
+                GameKind::Reverie => Route::Dicksit,
+                GameKind::Wolves => Route::Wolvesville,
+                GameKind::Codenames => Route::Codenames,
+            },
+            Screen::Wavelength => Route::Wavelength,
+            Screen::Tennis => Route::TableTennis,
+            Screen::Nonograms => {
+                if self.nonograms.playing() {
+                    Route::NonogramsPlay
+                } else {
+                    Route::Nonograms
+                }
+            }
+            Screen::Sudoku => {
+                if self.sudoku.playing() {
+                    Route::SudokuPlay
+                } else {
+                    Route::Sudoku
+                }
+            }
+        }
+    }
+    fn interrupt(&mut self) {
+        self.game.pause();
+        self.tennis.interrupt();
+        self.fih.interrupt();
+        self.mines.cancel_gesture();
+        self.nonograms.cancel_gesture();
+        self.sudoku.cancel_gesture();
+        self.home_pan.cancel();
+        if self.screen == Screen::Wavelength {
+            self.wavelength.interrupt();
+        }
+        platform::editor_close();
+    }
+    fn set_drawer(&mut self, open: bool, ui: &mut Ui) {
+        if open == self.drawer {
+            return;
+        }
+        if open {
+            self.interrupt();
+        }
+        self.drawer = open;
+        ui.reset_focus();
+    }
+    /// History restores the existing session, rather than starting a new game.
+    fn navigate(&mut self, route: Route, ui: &mut Ui, now: f64) {
+        use jarcade::{fih::Room, multiplayer::GameKind};
+        let previous = self.screen;
+        self.interrupt();
+        match route {
+            Route::SinglePlayer | Route::Multiplayer => {
+                if previous == Screen::Fih {
+                    self.fih_preview = FihPreview::new(&self.fih.pet, self.settings.power_saver);
+                }
+                let multiplayer = route == Route::Multiplayer;
+                if self.multiplayer != multiplayer {
+                    self.home_pan = jarcade::board_pan::BoardPan::default();
+                }
+                self.screen = Screen::Home;
+                self.multiplayer = multiplayer;
+            }
+            Route::Settings => self.screen = Screen::Settings,
+            Route::Snake => self.screen = Screen::Game,
+            Route::Mines | Route::MinesPlay => {
+                self.screen = Screen::Mines;
+                self.mines.configuring = route == Route::Mines;
+            }
+            Route::Nonograms | Route::NonogramsPlay => {
+                self.screen = Screen::Nonograms;
+                self.nonograms.navigate(route == Route::NonogramsPlay);
+            }
+            Route::Sudoku | Route::SudokuPlay => {
+                self.screen = Screen::Sudoku;
+                self.sudoku.navigate(route == Route::SudokuPlay);
+            }
+            Route::Fih
+            | Route::Kitchen
+            | Route::Bathroom
+            | Route::Bedroom
+            | Route::Playroom
+            | Route::Clinic => {
+                self.screen = Screen::Fih;
+                if previous != Screen::Fih {
+                    self.fih.enter(now);
+                }
+                let room = match route {
+                    Route::Bathroom => Room::Bathroom,
+                    Route::Bedroom => Room::Bedroom,
+                    Route::Playroom => Room::Playroom,
+                    Route::Clinic => Room::Clinic,
+                    Route::Kitchen => Room::Kitchen,
+                    _ => self.fih.room(),
+                };
+                self.fih.move_room(room, ui);
+            }
+            Route::Wavelength => {
+                self.screen = Screen::Wavelength;
+                if previous != self.screen {
+                    self.wavelength.enter();
+                }
+                self.multiplayer = true;
+            }
+            Route::TableTennis => self.screen = Screen::Tennis,
+            Route::Coupe | Route::Dicksit | Route::Wolvesville | Route::Codenames => {
+                let kind = match route {
+                    Route::Dicksit => GameKind::Reverie,
+                    Route::Wolvesville => GameKind::Wolves,
+                    Route::Codenames => GameKind::Codenames,
+                    _ => GameKind::Court,
+                };
+                if previous != Screen::Multiplayer || self.online.game != kind {
+                    let code = platform::invite()
+                        .filter(|(game, _)| *game == kind)
+                        .map(|(_, code)| code);
+                    self.online.enter(kind, code);
+                }
+                self.screen = Screen::Multiplayer;
+                self.multiplayer = true;
+            }
+        }
+        if previous == Screen::Multiplayer && self.screen != previous {
+            self.online.suspend();
+        }
+        ui.reset_focus();
+        platform::appearance(self.settings.power_saver, self.screen == Screen::Wavelength);
+    }
+    fn sidebar(&mut self, ui: &mut Ui) -> Action {
+        let width = (screen_width() * 0.86).min(320.);
+        // Keep hidden game state private and avoid GPU readbacks or idle snapshots.
+        draw_rectangle(
+            0.,
+            0.,
+            screen_width(),
+            screen_height(),
+            Color::new(0., 0., 0., 0.16),
+        );
+        draw_rectangle(0., 0., width, screen_height(), ui.theme.bg);
+        logo(Rect::new(20., 22., 26., 26.), ui.theme.accent);
+        ui.heading("jarcade", 56., 44., 22., ui.theme.text);
+        if ui.icon_button(Icon::Back, Rect::new(width - 56., 12., 44., 44.), false) {
+            return Action::CloseMenu;
+        }
+        let route = self.route();
+        let mut y = 76.;
+        if !route.is_menu() {
+            ui.label("IN PLAY", 20., y + 12., 11., ui.theme.muted);
+            y += 24.;
+            if ui.button(
+                &format!("Continue {}", route.title()),
+                Rect::new(16., y, width - 32., 48.),
+                true,
+            ) {
+                return Action::CloseMenu;
+            }
+            y += 68.;
+        }
+        for destination in [Route::SinglePlayer, Route::Multiplayer] {
+            if ui.button(
+                destination.title(),
+                Rect::new(16., y, width - 32., 48.),
+                route == destination,
+            ) {
+                return Action::Navigate(destination);
+            }
+            y += 56.;
+        }
+        // App configuration belongs to the launch screen, including this drawer.
+        if route.is_menu()
+            && ui.button(
+                "Settings",
+                Rect::new(16., y, width - 32., 48.),
+                route == Route::Settings,
+            )
+        {
+            return Action::Navigate(Route::Settings);
+        }
+        if ui.hit(Rect::new(
+            width,
+            0.,
+            screen_width() - width,
+            screen_height(),
+        )) {
+            return Action::CloseMenu;
+        }
+        Action::None
     }
     fn save(&mut self) {
         self.save_failed = !platform::save_settings(self.settings);
@@ -181,6 +402,24 @@ impl App {
     fn act(&mut self, action: Action, ui: &mut Ui, now: f64) -> bool {
         match action {
             Action::None => return false,
+            Action::Menu | Action::CloseMenu => {
+                let open = matches!(action, Action::Menu);
+                platform::route_drawer(open);
+                if !cfg!(target_arch = "wasm32") {
+                    self.set_drawer(open, ui);
+                }
+            }
+            Action::Navigate(route) => {
+                if route == self.route() {
+                    platform::route_drawer(false);
+                    if !cfg!(target_arch = "wasm32") {
+                        self.set_drawer(false, ui);
+                    }
+                } else {
+                    self.set_drawer(false, ui);
+                    self.navigate(route, ui, now);
+                }
+            }
             Action::Home => {
                 self.tennis.interrupt();
                 self.online.suspend();
@@ -432,7 +671,9 @@ impl App {
                 };
             }
         } else {
-            logo(Rect::new(left, 27.0, 30.0, 30.0), ui.theme.accent);
+            if ui.icon_button(Icon::Menu, Rect::new(left, top, 44., 44.), false) {
+                return Action::Menu;
+            }
             ui.heading("jarcade", left + 40.0, 50.0, 23.0, ui.theme.text);
             if ui.icon_button(
                 if self.screen == Screen::Home {
@@ -491,7 +732,7 @@ impl App {
         let content_height = grid.content_height(count);
         // Header and category tabs are fixed; only the gallery scrolls.
         // Keyboard focus brings every launch card into view as well.
-        if let Some(index) = ui.focused_item().and_then(|i| i.checked_sub(3))
+        if let Some(index) = ui.focused_item().and_then(|i| i.checked_sub(4))
             && index < count
         {
             let card = grid.card(index);
@@ -910,27 +1151,11 @@ async fn main() {
     platform::configure_display();
     let mut ui = Ui::new();
     let mut app = App::new(&ui);
-    if let Some((game, code)) = platform::invite() {
-        app.online.enter(game, Some(code));
-        app.screen = Screen::Multiplayer;
-        app.multiplayer = true;
-    } else if platform::launch_wavelength() {
-        app.wavelength.enter();
-        app.screen = Screen::Wavelength;
-        app.multiplayer = true;
+    if let Some(route) = platform::route_load() {
+        app.navigate(route, &mut ui, get_time());
     }
-    if app.screen == Screen::Home && platform::launch_table_tennis() {
-        app.tennis.enter(seed());
-        app.screen = Screen::Tennis;
-    }
-    if app.screen == Screen::Home && platform::launch_nonograms() {
-        app.nonograms.enter();
-        app.screen = Screen::Nonograms;
-    }
-    if app.screen == Screen::Home && platform::launch_sudoku() {
-        app.sudoku.enter();
-        app.screen = Screen::Sudoku;
-    }
+    let mut last_route = app.route();
+    platform::route_sync(last_route, true);
     platform::appearance(app.settings.power_saver, app.screen == Screen::Wavelength);
     let timer = platform::WakeTimer::new();
     let subscriber = macroquad::input::utils::register_input_subscriber();
@@ -946,6 +1171,20 @@ async fn main() {
                 && matches!(app.game.status(), Status::Ready | Status::Running),
         );
         macroquad::input::utils::repeat_all_miniquad_input(&mut input, subscriber);
+        if let Some(navigation) = platform::route_poll() {
+            if let Some(route) = Route::parse(&navigation.route) {
+                if route != app.route() {
+                    app.navigate(route, &mut ui, frame_start);
+                }
+                last_route = app.route();
+                if route != last_route {
+                    platform::route_sync(last_route, true);
+                }
+            }
+            app.set_drawer(navigation.drawer, &mut ui);
+            input.cancel();
+            last_announcement = None;
+        }
         let web_interrupted = platform::web_interrupted();
         if input.interrupted || web_interrupted {
             app.game.pause();
@@ -968,6 +1207,40 @@ async fn main() {
             app.wavelength.poll();
         }
         ui.begin(app.settings.power_saver, input.pointer);
+        if is_key_pressed(KeyCode::Back) {
+            platform::route_drawer(!app.drawer);
+            if !cfg!(target_arch = "wasm32") {
+                app.set_drawer(!app.drawer, &mut ui);
+            }
+            input.cancel();
+        }
+        if app.drawer {
+            clear_background(ui.theme.bg);
+            let action = if is_key_pressed(KeyCode::Escape) {
+                Action::CloseMenu
+            } else {
+                app.sidebar(&mut ui)
+            };
+            ui.end();
+            let changed = app.act(action, &mut ui, frame_start);
+            if last_route != app.route() {
+                last_route = app.route();
+                platform::route_sync(last_route, false);
+            }
+            platform::announce(&format!(
+                "Jarcade. Navigation. {}. Continue, Single player, Multiplayer{}.",
+                app.route().title(),
+                if app.route().is_menu() {
+                    ", Settings"
+                } else {
+                    ""
+                }
+            ));
+            last_announcement = None;
+            timer.arm(changed.then_some(0.));
+            next_frame().await;
+            continue;
+        }
         let mut action = Action::None;
         if is_key_pressed(KeyCode::Escape) {
             action = if app.screen == Screen::Fih {
@@ -1148,6 +1421,10 @@ async fn main() {
         }
         ui.end();
         let changed = app.act(action, &mut ui, frame_start);
+        if last_route != app.route() {
+            last_route = app.route();
+            platform::route_sync(last_route, false);
+        }
         if ui.activated {
             app.pulse(Pulse::Tap, frame_start);
         }

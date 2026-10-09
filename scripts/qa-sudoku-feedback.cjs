@@ -50,7 +50,7 @@ function pixels(path,points){
       await tap(l.cell(i));assert(!(await label()).includes('Highlighted digit'));await key(String(correct));assert(!(await label()).includes('incorrect digit'));
       await key('Control+z');await ready('1 incorrect digit');await key('Control+y');assert(!(await label()).includes('incorrect digit'));
       await key('Control+z');await ready('1 incorrect digit');
-      const beforeReload=await raw();await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');await ready('1 incorrect digit');await ready('Selected cells: none.');assert.equal(await raw(),beforeReload);
+      const beforeReload=await raw();await p.reload();await ready('Digit mode');await ready('1 incorrect digit');await ready('Selected cells: none.');assert.equal(await raw(),beforeReload);
       await tap(l.cell(i));await tap(l.erase);assert(!(await label()).includes('incorrect digit'));await key('Control+z');await ready('1 incorrect digit');await key('Control+y');assert(!(await label()).includes('incorrect digit'));
       // Both note styles use the lighter shade; duplicates count once.
       const blanks=g.puzzle.givens.map((v,i)=>!v?i:-1).filter(i=>i>=0),j=blanks[1],k=blanks[2];

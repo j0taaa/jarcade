@@ -26,7 +26,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{Notify, mpsc};
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 
 type Shared = Arc<Mutex<Hub>>;
 type Tx = mpsc::Sender<ServerMessage>;
@@ -698,7 +698,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shared = Arc::new(Mutex::new(Hub::load(data.join("rooms.json"))?));
     tokio::spawn(deadlines(shared.clone()));
     let assets = std::env::var("JARCADE_STATIC_DIR").unwrap_or_else(|_| "dist".into());
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/ws", get(upgrade))
         .route(
             "/health",
@@ -706,8 +706,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Json(serde_json::json!({"status":"ok","games":["court","reverie","wolves","codenames"],"protocol":1}))
             }),
         )
-        .fallback_service(ServeDir::new(assets))
+        .fallback_service(ServeDir::new(&assets))
         .with_state(shared);
+    for route in jarcade::navigation::Route::ALL {
+        if route.path() != "/" {
+            app = app.route_service(
+                route.path(),
+                ServeFile::new(PathBuf::from(&assets).join("index.html")),
+            );
+            app = app.route_service(
+                &format!("{}/", route.path()),
+                ServeFile::new(PathBuf::from(&assets).join("index.html")),
+            );
+        }
+    }
     let bind = std::env::var("JARCADE_BIND").unwrap_or_else(|_| "127.0.0.1:8091".into());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     println!("Jarcade room service listening on {bind}");

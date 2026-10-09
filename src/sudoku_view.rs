@@ -169,6 +169,20 @@ impl SudokuPage {
             viewport: Vec2::ZERO,
         }
     }
+    pub fn playing(&self) -> bool {
+        !self.configuring
+    }
+    pub fn navigate(&mut self, playing: bool) {
+        self.cancel_gesture();
+        self.home = false;
+        self.generator = None;
+        self.modal = Modal::None;
+        self.configuring = !playing || self.game.is_none();
+        if !self.configuring {
+            self.refresh_mistakes();
+        }
+        self.revision += 1;
+    }
     pub fn enter(&mut self) {
         self.cancel_gesture();
         self.configuring = true;
@@ -1622,6 +1636,28 @@ mod tests {
         )));
         page.resume();
         page
+    }
+    #[test]
+    fn direct_play_route_restores_warning_and_progress_without_an_edit() {
+        let mut source = page();
+        let game = source.game.as_mut().unwrap();
+        let cell = game.puzzle.givens.iter().position(|&d| d == 0).unwrap();
+        game.enter(&[cell], game.puzzle.solution[cell] % 9 + 1, Tool::Digit);
+        let save = game.encode();
+        let mut restored = SudokuPage::new(Game::restore(&save));
+        restored.navigate(true);
+        assert!(restored.playing());
+        assert_eq!(restored.mistakes, vec![cell]);
+        assert!(restored.message.contains("incorrect digit"));
+        assert_eq!(restored.game.as_ref().unwrap().encode(), save);
+        assert!(!restored.dirty);
+        restored.navigate(false);
+        restored.navigate(true);
+        assert_eq!(restored.game.as_ref().unwrap().encode(), save);
+        let mut missing = SudokuPage::new(None);
+        missing.navigate(true);
+        assert!(!missing.playing());
+        assert!(missing.generator.is_none());
     }
     #[test]
     fn fill_notes_action_works_without_selection_and_preserves_digit_lookup() {

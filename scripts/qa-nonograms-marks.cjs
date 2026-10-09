@@ -48,8 +48,7 @@ const base=process.env.JARCADE_QA_URL||'http://127.0.0.1:8092';
       await key('Tab');await key('Space');await mode('Cross');assert.equal(await raw(),before,'Space must switch tools while a toolbar button has focus');
       // Hints also clear contradictions before replacing their marks.
       await key('h');assert.equal((await cells())[1],0);await key('h');assert.equal((await cells())[2],0);await key('h');assert.equal((await cells())[1],1);
-      const stored=await raw();await p.reload();await p.waitForFunction(()=>document.querySelector('canvas')?.getAttribute('aria-label')?.includes('Choose a picture'));
-      await p.touchscreen.tap(...setup(w,h).play);await mode('Fill');assert.equal(await raw(),stored);
+      const stored=await raw();await p.reload();await mode('Fill');assert.equal(await raw(),stored);
       await p.waitForTimeout(350);const frames=await p.evaluate(()=>window.__frames);await p.waitForTimeout(350);assert.equal(await p.evaluate(()=>window.__frames),frames,'Idle FPS must not redraw');
       await c.close();console.log(`Mark transitions passed: ${w}×${h}, ${saver?'black':'white'}`);
     }

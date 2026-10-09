@@ -32,7 +32,7 @@ const base=process.env.JARCADE_QA_URL||'http://127.0.0.1:8092';
   await key('h');await p.waitForFunction(()=>JSON.parse(localStorage.getItem('jarcade.sudoku.v1')).game.hints===1,null,{timeout:30000});
   g=await game();const cell=g.marks.findIndex(m=>m[0]);assert.equal(g.marks[cell][0],g.puzzle.solution[cell]);
   await key('z');await key('Control+Shift+A');await tap(play(w,h).cell(cell));await key(String(g.puzzle.solution[cell]%9+1));await ready('incorrect digit');await key('Control+z');
-  const stored=await raw();await p.reload();await ready('Choose a variant');s=setup(w,h,true);await tap(s.resume);await ready('Hard. Digit mode');assert.equal(await raw(),stored);
+  const stored=await raw();await p.reload();s=setup(w,h,true);await ready('Hard. Digit mode');assert.equal(await raw(),stored);
   await p.waitForTimeout(350);const frames=await p.evaluate(()=>window.__frames);await p.waitForTimeout(350);assert.equal(await p.evaluate(()=>window.__frames),frames);
   await key('Escape');await ready('Choose a variant');
   // Classic clears every modifier. Two independent controls offer all modes.

@@ -7,6 +7,20 @@ Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
 `cloud` must remain online.
 
+## Navigation
+
+Categories (`/` and `/multiplayer`), `/settings`, and games such as
+`/games/sudoku` have shareable URLs. Puzzle setup and play use separate routes;
+Fih rooms use paths such as `/games/fih/kitchen` and `/games/fih/bedroom`. Refreshing a play route
+restores saved puzzle progress. Older `?game=…&room=…` invites still work;
+new invites use a game route and public room code.
+
+On touch devices, browser Back (including browser/OS back gestures) opens the
+shared sidebar first. Close it to continue; another Back traverses to the previous
+page or leaves the app. Desktop Back/Forward navigate directly. The launch screen
+also has a menu button, and native Android Back toggles the sidebar. Navigation
+sleeps between events and never restarts a game just to open the sidebar.
+
 ## Run
 
 ```sh

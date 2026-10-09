@@ -385,6 +385,17 @@ impl NonogramsPage {
             viewport: Vec2::ZERO,
         }
     }
+    pub fn playing(&self) -> bool {
+        !self.configuring
+    }
+    pub fn navigate(&mut self, playing: bool) {
+        self.cancel_gesture();
+        self.home = false;
+        self.help = false;
+        self.reset_confirm = false;
+        self.configuring = !playing;
+        self.revision += 1;
+    }
     pub fn enter(&mut self) {
         self.cancel_gesture();
         self.configuring = true;

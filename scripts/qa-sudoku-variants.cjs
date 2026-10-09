@@ -31,7 +31,7 @@ const names=['Arrow','Renban','Whispers','Region sum','Palindrome','Between','En
    // The board inset for Sandwich also governs touch hit testing.
    const i=g.puzzle.givens.findIndex(d=>d===0),l=play(w,h,n===7);await tap(l.cell(i));await key(String(g.puzzle.solution[i]%9+1));await ready('incorrect digit');assert.equal((await game()).marks[i][0],g.puzzle.solution[i]%9+1);await key('Control+z');
    await key('h');await p.waitForFunction(()=>JSON.parse(localStorage.getItem('jarcade.sudoku.v1')).game.hints===1,null,{timeout:30000});
-   const state=await raw();await p.reload();await ready('Choose a variant');await tap(setup(w,h,true).resume);await ready('Digit mode');assert.equal(await raw(),state);
+   const state=await raw();await p.reload();await ready('Digit mode');assert.equal(await raw(),state);
    await p.waitForTimeout(300);const frames=await p.evaluate(()=>window.__frames);await p.waitForTimeout(300);assert.equal(await p.evaluate(()=>window.__frames),frames);
    await key('Escape');await ready('Choose a variant');console.log(`${w}×${h} ${names[n]}: generated, touch/errors/hints, restored, idle`);
   }

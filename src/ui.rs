@@ -52,6 +52,7 @@ impl Theme {
 
 #[derive(Clone, Copy)]
 pub enum Icon {
+    Menu,
     Back,
     Settings,
     Play,
@@ -356,6 +357,18 @@ pub fn draw_icon(icon: Icon, center: Vec2, color: Color) {
     let p = |x: f32, y: f32| center + vec2(x, y);
     let line = |a: Vec2, b: Vec2| draw_line(a.x, a.y, b.x, b.y, 1.8, color);
     match icon {
+        Icon::Menu => {
+            for y in [-6., 0., 6.] {
+                draw_line(
+                    center.x - 9.,
+                    center.y + y,
+                    center.x + 9.,
+                    center.y + y,
+                    2.,
+                    color,
+                );
+            }
+        }
         Icon::Play => draw_triangle(p(-4.0, -8.0), p(-4.0, 8.0), p(8.0, 0.0), color),
         Icon::Pause => {
             for x in [-4.0, 4.0] {

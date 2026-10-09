@@ -243,7 +243,10 @@ impl FihPage {
             Some(Pulse::Tap)
         }
     }
-    fn move_room(&mut self, room: Room, ui: &mut Ui) {
+    pub fn room(&self) -> Room {
+        self.room
+    }
+    pub fn move_room(&mut self, room: Room, ui: &mut Ui) {
         self.ball.cancel();
         self.ball_frame = None;
         self.room = room;
