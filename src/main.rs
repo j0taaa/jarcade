@@ -5,6 +5,7 @@ mod fih_character;
 mod fih_view;
 mod game_view;
 mod ito_view;
+mod local_pair_view;
 mod mines_view;
 mod nonograms_view;
 mod online_net;
@@ -25,6 +26,7 @@ use jarcade::{
     feedback::{Feedback, Pulse},
     fps::FpsCounter,
     layout::Layout,
+    local_pair::Kind as PairKind,
     navigation::Route,
     settings::Settings,
     snake::{Cell, Direction, Snake, Status},
@@ -46,6 +48,7 @@ enum Screen {
     Multiplayer,
     Wavelength,
     Ito,
+    LocalPair(PairKind),
     Tennis,
     Nonograms,
     Sudoku,
@@ -68,6 +71,7 @@ enum Action {
     NewTelephone,
     NewWavelength,
     NewIto,
+    NewPair(PairKind),
     NewTennis,
     NewNonograms,
     NewSudoku,
@@ -120,6 +124,7 @@ struct App {
     online: online_view::OnlinePage,
     wavelength: wavelength_view::WavelengthPage,
     ito: ito_view::ItoPage,
+    pair: local_pair_view::PairPage,
     tennis: table_tennis_view::TennisPage,
     nonograms: nonograms_view::NonogramsPage,
     sudoku: sudoku_view::SudokuPage,
@@ -144,6 +149,7 @@ impl App {
             online: online_view::OnlinePage::new(),
             wavelength: wavelength_view::WavelengthPage::new(seed()),
             ito: ito_view::ItoPage::new(seed()),
+            pair: local_pair_view::PairPage::new(),
             tennis: table_tennis_view::TennisPage::new(seed()),
             nonograms: nonograms_view::NonogramsPage::new(platform::load_nonograms()),
             sudoku: sudoku_view::SudokuPage::new(platform::load_sudoku()),
@@ -201,6 +207,12 @@ impl App {
             },
             Screen::Wavelength => Route::Wavelength,
             Screen::Ito => Route::Ito,
+            Screen::LocalPair(kind) => match kind {
+                PairKind::Faces => Route::GuessWho,
+                PairKind::Mastermind => Route::Mastermind,
+                PairKind::TicTacToe => Route::TicTacToe,
+                PairKind::ConnectFour => Route::ConnectFour,
+            },
             Screen::Tennis => Route::TableTennis,
             Screen::Nonograms => {
                 if self.nonograms.playing() {
@@ -232,6 +244,9 @@ impl App {
         }
         if self.screen == Screen::Ito {
             self.ito.interrupt();
+        }
+        if matches!(self.screen, Screen::LocalPair(_)) {
+            self.pair.interrupt();
         }
         platform::editor_close();
     }
@@ -295,6 +310,17 @@ impl App {
                     _ => self.fih.room(),
                 };
                 self.fih.move_room(room, ui);
+            }
+            Route::GuessWho | Route::Mastermind | Route::TicTacToe | Route::ConnectFour => {
+                let kind = match route {
+                    Route::GuessWho => PairKind::Faces,
+                    Route::Mastermind => PairKind::Mastermind,
+                    Route::TicTacToe => PairKind::TicTacToe,
+                    _ => PairKind::ConnectFour,
+                };
+                self.pair.enter(kind);
+                self.screen = Screen::LocalPair(kind);
+                self.multiplayer = true;
             }
             Route::Ito => {
                 self.screen = Screen::Ito;
@@ -448,6 +474,9 @@ impl App {
             Action::Home => {
                 self.tennis.interrupt();
                 self.online.suspend();
+                if matches!(self.screen, Screen::LocalPair(_)) {
+                    self.pair.interrupt();
+                }
                 if self.screen == Screen::Wavelength {
                     self.wavelength.interrupt();
                 }
@@ -500,6 +529,13 @@ impl App {
                     None,
                 );
                 self.screen = Screen::Multiplayer;
+            }
+            Action::NewPair(kind) => {
+                self.game.pause();
+                self.online.suspend();
+                self.pair.enter(kind);
+                self.screen = Screen::LocalPair(kind);
+                self.multiplayer = true;
             }
             Action::NewIto => {
                 self.game.pause();
@@ -573,6 +609,7 @@ impl App {
                 | Action::NewTelephone
                 | Action::NewWavelength
                 | Action::NewIto
+                | Action::NewPair(_)
                 | Action::NewTennis
                 | Action::NewNonograms
                 | Action::NewSudoku
@@ -666,6 +703,7 @@ impl App {
                 | Screen::Multiplayer
                 | Screen::Wavelength
                 | Screen::Ito
+                | Screen::LocalPair(_)
                 | Screen::Tennis
                 | Screen::Nonograms
                 | Screen::Sudoku
@@ -770,7 +808,7 @@ impl App {
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        let count = if self.multiplayer { 7 } else { 6 };
+        let count = if self.multiplayer { 11 } else { 6 };
         let grid = layout.game_grid_for(card_y, count);
         let viewport = Rect::new(x, card_y, width, (screen_height() - card_y - 16.).max(48.));
         let content_height = grid.content_height(count);
@@ -839,8 +877,10 @@ impl App {
                     codenames_view::preview(ui, preview_rect);
                 } else if index == 5 {
                     telephone_view::preview(ui, preview_rect);
-                } else {
+                } else if index == 6 {
                     ito_view::preview(ui, preview_rect);
+                } else {
+                    local_pair_view::preview(ui, PairKind::ALL[index - 7], preview_rect);
                 }
             } else if index == 0 {
                 self.preview.draw(preview_rect);
@@ -864,6 +904,10 @@ impl App {
                     "Codenames",
                     "Drawing Telephone",
                     "Ito",
+                    "Cara a Cara",
+                    "Mastermind",
+                    "Jogo da Velha",
+                    "Ligue 4",
                 ][index]
             } else {
                 [
@@ -893,6 +937,10 @@ impl App {
                         "4–16",
                         "Draw · 3–12",
                         "Local · 2–10",
+                        "Local · 2",
+                        "Local · 2",
+                        "Local · 2",
+                        "Local · 2",
                     ][index]
                 } else {
                     ["Classic", "Puzzle", "Pet", "vs CPU", "Puzzle", "Variants"][index]
@@ -936,8 +984,10 @@ impl App {
                         Action::NewCodenames
                     } else if index == 5 {
                         Action::NewTelephone
-                    } else {
+                    } else if index == 6 {
                         Action::NewIto
+                    } else {
+                        Action::NewPair(PairKind::ALL[index - 7])
                     }
                 } else if index == 0 {
                     Action::NewGame
@@ -1264,6 +1314,9 @@ async fn main() {
             if app.screen == Screen::Ito {
                 app.ito.interrupt();
             }
+            if matches!(app.screen, Screen::LocalPair(_)) {
+                app.pair.interrupt();
+            }
             input.cancel();
             app.mines.cancel_gesture();
             app.nonograms.cancel_gesture();
@@ -1331,6 +1384,12 @@ async fn main() {
                 } else {
                     Action::None
                 }
+            } else if matches!(app.screen, Screen::LocalPair(_)) {
+                if app.pair.back() {
+                    Action::Home
+                } else {
+                    Action::None
+                }
             } else if app.screen == Screen::Ito {
                 if app.ito.back() {
                     Action::Home
@@ -1376,6 +1435,9 @@ async fn main() {
             app.game_controls(&mut ui, &layout, frame_start);
         }
         app.advance(frame_start);
+        // These static games can change state while drawing keyboard controls.
+        // Present the resulting board once before returning to event-driven idle.
+        let pair_revision = app.pair.revision;
         let page_action = match app.screen {
             Screen::Multiplayer => {
                 if app.online.draw(&mut ui, input.pointer, &input.keys) {
@@ -1383,6 +1445,13 @@ async fn main() {
                 } else {
                     Action::None
                 }
+            }
+            Screen::LocalPair(_) => {
+                let (back, pulse) = app.pair.draw(&mut ui, input.pointer, &input.keys);
+                if let Some(pulse) = pulse {
+                    app.pulse(pulse, frame_start);
+                }
+                if back { Action::Home } else { Action::None }
             }
             Screen::Ito => {
                 let (back, pulse) = app.ito.draw(&mut ui, input.pointer, &input.keys);
@@ -1466,6 +1535,7 @@ async fn main() {
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
             || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
             || (app.screen == Screen::Ito && app.ito.needs_frame())
+            || (matches!(app.screen, Screen::LocalPair(_)) && app.pair.needs_frame())
             || (app.screen == Screen::Fih
                 && app.fih.needs_frame(frame_start, app.settings.power_saver));
         let fps = app.fps.record(frame_start, continuous);
@@ -1483,6 +1553,7 @@ async fn main() {
                     app.screen,
                     Screen::Wavelength
                         | Screen::Ito
+                        | Screen::LocalPair(_)
                         | Screen::Tennis
                         | Screen::Multiplayer
                         | Screen::Nonograms
@@ -1497,6 +1568,7 @@ async fn main() {
                     app.screen,
                     Screen::Wavelength
                         | Screen::Ito
+                        | Screen::LocalPair(_)
                         | Screen::Tennis
                         | Screen::Multiplayer
                         | Screen::Nonograms
@@ -1539,7 +1611,7 @@ async fn main() {
                     app.fih.revision,
                     app.online.revision,
                     app.wavelength.revision,
-                    app.ito.revision,
+                    (app.ito.revision, app.pair.revision),
                     app.tennis.game.revision,
                     (
                         app.nonograms.revision,
@@ -1571,12 +1643,13 @@ async fn main() {
                 Screen::Multiplayer => app.online.announcement(),
                 Screen::Wavelength => app.wavelength.announcement(),
                 Screen::Ito => app.ito.announcement(),
+                Screen::LocalPair(_) => app.pair.announcement(),
                 Screen::Tennis => app.tennis.announcement(),
                 Screen::Nonograms => app.nonograms.announcement(ui.focused_item()),
                 Screen::Sudoku => app.sudoku.announcement(ui.focused_item()),
                 Screen::Home => {
                     if app.multiplayer {
-                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, Codenames, Drawing Telephone, or Ito. Coupe, Dicksit, Wolvesville, Codenames and Drawing Telephone use online rooms; Wavelength and Ito are local on this device.".to_owned()
+                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, Codenames, Drawing Telephone, Ito, Cara a Cara, Mastermind, Jogo da Velha, or Ligue 4. Coupe, Dicksit, Wolvesville, Codenames and Drawing Telephone use online rooms; Wavelength, Ito, Cara a Cara, Mastermind, Jogo da Velha and Ligue 4 are local on this device.".to_owned()
                     } else {
                         "Jarcade. Games. Select Snake, Minesweeper, Fih, Table tennis, Nonograms, or Sudoku to play."
                             .to_owned()
@@ -1606,6 +1679,7 @@ async fn main() {
         }
         let delay = if changed
             || ui.activated
+            || (matches!(app.screen, Screen::LocalPair(_)) && app.pair.revision != pair_revision)
             || (app.screen == Screen::Mines && app.mines.needs_frame())
             || (app.screen == Screen::Nonograms && app.nonograms.needs_frame())
             || (app.screen == Screen::Sudoku && app.sudoku.needs_frame())
@@ -1622,6 +1696,7 @@ async fn main() {
         } else if (app.screen == Screen::Tennis && app.tennis.needs_frame())
             || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
             || (app.screen == Screen::Ito && app.ito.needs_frame())
+            || (matches!(app.screen, Screen::LocalPair(_)) && app.pair.needs_frame())
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
         {
             Some(if app.settings.power_saver {

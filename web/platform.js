@@ -86,6 +86,20 @@
           return 1;
         } catch { return 0; }
       };
+      imports.env.jarcade_pair_load = (pointer, capacity) => {
+        try {
+          const bytes = new TextEncoder().encode(localStorage.getItem("jarcade.local-pair.v1") || "");
+          const length = Math.min(bytes.length, capacity);
+          new Uint8Array(wasm_memory.buffer, pointer, length).set(bytes.subarray(0, length));
+          return length;
+        } catch { return 0; }
+      };
+      imports.env.jarcade_pair_save = (pointer, length) => {
+        try {
+          localStorage.setItem("jarcade.local-pair.v1", new TextDecoder().decode(new Uint8Array(wasm_memory.buffer, pointer, length)));
+          return 1;
+        } catch { return 0; }
+      };
       imports.env.jarcade_ito_load = (pointer, capacity) => {
         try {
           const bytes = new TextEncoder().encode(localStorage.getItem("jarcade.ito.v1") || "");

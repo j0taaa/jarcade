@@ -694,3 +694,33 @@ the [official Ito rules](https://www.arcanewonders.com/wp-content/uploads/2024/0
 with configurable cards per player; the official Extreme mode is not included.
 Gameplay and save validation live in `src/ito.rs`, with the responsive vector
 interface in `src/ito_view.rs`.
+
+
+## Local games for two
+
+**Cara a Cara** (`/games/guess-who`), **Mastermind** (`/games/mastermind`),
+**Jogo da Velha** (`/games/tic-tac-toe`) and **Ligue 4** (`/games/connect-four`)
+live in Multiplayer and use one shared device, entirely offline. Each has
+original vector artwork, a rules popup, a saved score and a confirmed reset.
+Grid-game rematches alternate the starting player. Number keys 1–9 choose
+tic-tac-toe cells in row order; 1–7 choose Connect Four columns. Pointer moves
+commit on release, and drags or multi-touch gestures never place a piece.
+
+Cara a Cara offers 24 original portraits. Privately select one each, pass the
+device between turns, ask yes/no questions aloud, and tap to eliminate or
+restore candidates on your own board. A confirmed correct guess wins; an
+incorrect guess loses. The opponent’s identity is shown only after the round.
+
+Mastermind uses four slots, six numbered colours, repetitions, and ten attempts.
+The app computes duplicate-safe exact-position and colour-only feedback.
+Number keys 1–6 enter colours, arrows select slots, Delete clears a slot and
+Enter submits. After each round, swap roles; the code maker earns one point per
+attempt used. Compare scores after an even number of rounds.
+
+Private screens are concealed on handoffs, Back/sidebar navigation, interruptions,
+resizing and reload. Progress is isolated in `jarcade.local-pair.v1` in browser
+storage or `local-pair.json` in the app-data folder. No room connection is opened;
+static boards sleep even when the FPS counter is enabled. Gameplay and save
+validation are in `src/local_pair.rs`, rendering in `src/local_pair_view.rs`.
+Core references: [Guess Who rules](https://instructions.hasbro.com/en-au/instruction/guess-who-original-guessing-game-board-game-for-kids-ages-6-and-up-for-2-players)
+and [classic Mastermind rules](https://www.hasbro.com/common/documents/430e4f3f6bfd10148a8ef35124427085/E0A7EB4950569047F5C0080A51F685F8.pdf).

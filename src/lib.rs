@@ -10,6 +10,7 @@ pub mod fih_svg;
 pub mod fps;
 pub mod ito;
 pub mod layout;
+pub mod local_pair;
 pub mod minesweeper;
 pub mod multiplayer;
 pub mod navigation;

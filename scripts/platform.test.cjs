@@ -242,3 +242,25 @@ test('Ito storage failures are reported without interrupting play', () => {
   assert.equal(app.env.jarcade_ito_load(0, 32768), 0);
   assert.equal(app.env.jarcade_ito_save(0, 10), 0);
 });
+
+
+test('Local two-player games save separately with bounded UTF-8 reads', () => {
+  const app = adapter();
+  const store = new Map([['jarcade.ito.v1', 'ito'], ['jarcade.settings.v1', 'settings']]);
+  app.context.localStorage = { getItem: key => store.get(key), setItem: (key, value) => store.set(key, value) };
+  const data = JSON.stringify({ faces: { phase: 'Cover', name: 'João' }, tic: { moves: [0] } });
+  const bytes = new TextEncoder().encode(data);
+  new Uint8Array(app.memory.buffer).set(bytes);
+  assert.equal(app.env.jarcade_pair_save(0, bytes.length), 1);
+  assert.equal(store.get('jarcade.local-pair.v1'), data);
+  assert.equal(store.get('jarcade.ito.v1'), 'ito');
+  assert.equal(store.get('jarcade.settings.v1'), 'settings');
+  assert.equal(app.env.jarcade_pair_load(1024, 16384), bytes.length);
+  assert.equal(new TextDecoder().decode(new Uint8Array(app.memory.buffer, 1024, bytes.length)), data);
+  assert.equal(app.env.jarcade_pair_load(1024, 4), 4);
+});
+test('Local two-player storage failures are returned without throwing', () => {
+  const app = adapter();
+  assert.equal(app.env.jarcade_pair_load(0, 16384), 0);
+  assert.equal(app.env.jarcade_pair_save(0, 10), 0);
+});
