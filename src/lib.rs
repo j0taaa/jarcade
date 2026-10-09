@@ -8,6 +8,7 @@ pub mod fih_games;
 pub mod fih_interaction;
 pub mod fih_svg;
 pub mod fps;
+pub mod ito;
 pub mod layout;
 pub mod minesweeper;
 pub mod multiplayer;

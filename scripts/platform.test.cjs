@@ -219,3 +219,26 @@ test('Sudoku storage failures are reported without interrupting play', () => {
   assert.equal(app.env.jarcade_sudoku_load(0, 262144), 0);
   assert.equal(app.env.jarcade_sudoku_save(0, 10), 0);
 });
+
+
+test('Ito UTF-8 progress is isolated and loading respects buffer capacity', () => {
+  const app = adapter();
+  const store = new Map([['jarcade.wavelength.v1', 'party'], ['jarcade.settings.v1', 'settings']]);
+  app.context.localStorage = { getItem: key => store.get(key), setItem: (key, value) => store.set(key, value) };
+  const data = JSON.stringify({ phase: { kind: 'handoff', player: 1 }, clue: 'Coração ☀' });
+  const bytes = new TextEncoder().encode(data);
+  new Uint8Array(app.memory.buffer).set(bytes);
+  assert.equal(app.env.jarcade_ito_save(0, bytes.length), 1);
+  assert.equal(store.get('jarcade.ito.v1'), data);
+  assert.equal(store.get('jarcade.wavelength.v1'), 'party');
+  assert.equal(store.get('jarcade.settings.v1'), 'settings');
+  assert.equal(app.env.jarcade_ito_load(1024, 4096), bytes.length);
+  assert.equal(new TextDecoder().decode(new Uint8Array(app.memory.buffer, 1024, bytes.length)), data);
+  assert.equal(app.env.jarcade_ito_load(1024, 4), 4);
+});
+
+test('Ito storage failures are reported without interrupting play', () => {
+  const app = adapter();
+  assert.equal(app.env.jarcade_ito_load(0, 32768), 0);
+  assert.equal(app.env.jarcade_ito_save(0, 10), 0);
+});

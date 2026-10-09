@@ -15,6 +15,8 @@ unsafe extern "C" {
     fn jarcade_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_fih_load(buffer: *mut u8, capacity: usize) -> usize;
     fn jarcade_fih_save(buffer: *const u8, length: usize) -> i32;
+    fn jarcade_ito_load(buffer: *mut u8, capacity: usize) -> usize;
+    fn jarcade_ito_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_wavelength_load(buffer: *mut u8, capacity: usize) -> usize;
     fn jarcade_wavelength_save(buffer: *const u8, length: usize) -> i32;
     fn jarcade_nonograms_load(buffer: *mut u8, capacity: usize) -> usize;
@@ -178,6 +180,44 @@ pub fn load_settings() -> Settings {
             .and_then(|path| std::fs::read_to_string(path).ok())
             .map(|value| Settings::decode(&value))
             .unwrap_or_default()
+    }
+}
+
+pub fn load_ito(seed: u64) -> jarcade::ito::Game {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut buffer = [0u8; 32768];
+        // SAFETY: bundled adapter copies at most the supplied capacity.
+        let n = unsafe { jarcade_ito_load(buffer.as_mut_ptr(), buffer.len()) }.min(buffer.len());
+        jarcade::ito::Game::decode(std::str::from_utf8(&buffer[..n]).unwrap_or_default(), seed)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let data = settings_path()
+            .and_then(|p| std::fs::read_to_string(p.with_file_name("ito.json")).ok())
+            .unwrap_or_default();
+        jarcade::ito::Game::decode(&data, seed)
+    }
+}
+pub fn save_ito(game: &jarcade::ito::Game) -> bool {
+    let data = game.encode();
+    #[cfg(target_arch = "wasm32")]
+    // SAFETY: adapter reads the live UTF-8 slice synchronously.
+    unsafe {
+        jarcade_ito_save(data.as_ptr(), data.len()) != 0
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(path) = settings_path().map(|p| p.with_file_name("ito.json")) else {
+            return false;
+        };
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        std::fs::create_dir_all(parent)
+            .and_then(|()| std::fs::write(path.with_extension("tmp"), data))
+            .and_then(|()| std::fs::rename(path.with_extension("tmp"), path))
+            .is_ok()
     }
 }
 

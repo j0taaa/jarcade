@@ -5,13 +5,13 @@ const { mkdirSync } = require('node:fs');
 const base = process.env.JARCADE_QA_URL || 'http://127.0.0.1:8092';
 const artifacts = '/tmp/jarcade-home-qa';
 mkdirSync(artifacts, { recursive: true });
-function gallery(w, h) {
+function gallery(w, h, count = 6) {
   const margin = w < 360 ? 16 : w < 600 ? 20 : 40;
   const width = Math.min(w - margin * 2, 1040), x = (w - width) / 2;
   const landscape = (w > h * 1.3 && h < 620) || (h < 360 && w >= 360);
   const columns = width >= 960 ? 4 : width >= 600 || (landscape && width >= 480) ? 3 : 2;
   const gap = columns === 2 ? 12 : 20, cardWidth = (width - gap * (columns - 1)) / columns;
-  const top = h < 500 ? 132 : h < 640 ? 208 : 238, rows = Math.ceil(5 / columns);
+  const top = h < 500 ? 132 : h < 640 ? 208 : 238, rows = Math.ceil(count / columns);
   const imageHeight = Math.min(cardWidth * .88, Math.max(88, (h - top - 24 - gap * (rows - 1)) / rows - 60));
   const cardHeight = imageHeight + 60, contentHeight = rows * cardHeight + (rows - 1) * gap;
   const maximum = Math.max(0, contentHeight - (h - top - 16));
@@ -59,8 +59,9 @@ function gallery(w, h) {
       await p.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').includes('Select Coupe'));
       for (let i=0;i<5;i++) { await p.keyboard.press('PageDown'); await p.waitForTimeout(40); }
       await p.screenshot({ path: `${artifacts}/multiplayer-${w}x${h}-${saver}.png`, scale:'css' });
-      await p.touchscreen.tap(...g.card(4,g.maximum));
-      await p.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').startsWith('Jarcade. Codenames.'));
+      const multi = gallery(w,h,7);
+      await p.touchscreen.tap(...multi.card(6,multi.maximum));
+      await p.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').startsWith('Jarcade. Ito.'));
       await idle(); assert.equal(await p.evaluate(() => window.__sockets), 0, 'Opening a room menu alone should not connect');
       if (w === 320 && !saver) {
         await p.goto(base); await p.waitForFunction(() => !document.getElementById('loading')); await waitHome();
@@ -72,6 +73,6 @@ function gallery(w, h) {
       await context.close();
     }
     assert.deepEqual(errors, []);
-    console.log('Home: fifth solo/online cards, safe touch scrolling, keyboard visibility, category switching, idle FPS, native DPR 3 and twelve layouts passed.');
+    console.log('Home: solo cards and seventh multiplayer card, safe touch scrolling, keyboard visibility, category switching, idle FPS, native DPR 3 and twelve layouts passed.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

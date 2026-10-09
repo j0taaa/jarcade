@@ -670,3 +670,27 @@ vector interface is in `src/telephone_view.rs`. Drawings have bounded, normalize
 coordinates (1000 × 750), at most 128 strokes and 4096 points, and travel only on
 submission. The server validates brush data, task types, duplicate submissions and
 host-only album navigation. Waiting screens have no polling or animation loop.
+
+
+## Ito
+
+Open **Multiplayer → Ito**, or `/games/ito`, for cooperative play on one shared
+device, entirely offline. Choose 2–10 players, 1–3 cards each, and English or
+Portuguese categories. Two players start with two cards each. The 32 bilingual
+category spectra and vector artwork are original.
+
+Each player privately reveals their numbers, writes an example for each card,
+and hides the hand before passing the device. Never disclose numbers or use
+numerical clues. Discuss the clues and order them from low to high. Drag the
+dotted grips to reorder; swipe elsewhere to scroll. Alternatively select a card
+and use the arrow buttons or **Ctrl+Up/Down**. The eye button lets a player
+privately revise their clues. Confirm the order, then reveal one number at a
+time: everyone wins if all numbers rise; the first inversion loses the round.
+
+Back, interruptions, resizing and reloading conceal a private hand. Rounds are
+saved separately in browser storage or `ito.json` in the app-data folder; no
+room connection is opened. This adapts the core cooperative ordering rules from
+the [official Ito rules](https://www.arcanewonders.com/wp-content/uploads/2024/09/ito_Rules_V2.pdf),
+with configurable cards per player; the official Extreme mode is not included.
+Gameplay and save validation live in `src/ito.rs`, with the responsive vector
+interface in `src/ito_view.rs`.

@@ -4,6 +4,7 @@ mod fih_art;
 mod fih_character;
 mod fih_view;
 mod game_view;
+mod ito_view;
 mod mines_view;
 mod nonograms_view;
 mod online_net;
@@ -44,6 +45,7 @@ enum Screen {
     Fih,
     Multiplayer,
     Wavelength,
+    Ito,
     Tennis,
     Nonograms,
     Sudoku,
@@ -65,6 +67,7 @@ enum Action {
     NewCodenames,
     NewTelephone,
     NewWavelength,
+    NewIto,
     NewTennis,
     NewNonograms,
     NewSudoku,
@@ -116,6 +119,7 @@ struct App {
     fih_preview: FihPreview,
     online: online_view::OnlinePage,
     wavelength: wavelength_view::WavelengthPage,
+    ito: ito_view::ItoPage,
     tennis: table_tennis_view::TennisPage,
     nonograms: nonograms_view::NonogramsPage,
     sudoku: sudoku_view::SudokuPage,
@@ -139,6 +143,7 @@ impl App {
             drawer: false,
             online: online_view::OnlinePage::new(),
             wavelength: wavelength_view::WavelengthPage::new(seed()),
+            ito: ito_view::ItoPage::new(seed()),
             tennis: table_tennis_view::TennisPage::new(seed()),
             nonograms: nonograms_view::NonogramsPage::new(platform::load_nonograms()),
             sudoku: sudoku_view::SudokuPage::new(platform::load_sudoku()),
@@ -195,6 +200,7 @@ impl App {
                 GameKind::Telephone => Route::DrawingTelephone,
             },
             Screen::Wavelength => Route::Wavelength,
+            Screen::Ito => Route::Ito,
             Screen::Tennis => Route::TableTennis,
             Screen::Nonograms => {
                 if self.nonograms.playing() {
@@ -223,6 +229,9 @@ impl App {
         self.home_pan.cancel();
         if self.screen == Screen::Wavelength {
             self.wavelength.interrupt();
+        }
+        if self.screen == Screen::Ito {
+            self.ito.interrupt();
         }
         platform::editor_close();
     }
@@ -286,6 +295,13 @@ impl App {
                     _ => self.fih.room(),
                 };
                 self.fih.move_room(room, ui);
+            }
+            Route::Ito => {
+                self.screen = Screen::Ito;
+                if previous != self.screen {
+                    self.ito.enter();
+                }
+                self.multiplayer = true;
             }
             Route::Wavelength => {
                 self.screen = Screen::Wavelength;
@@ -435,6 +451,9 @@ impl App {
                 if self.screen == Screen::Wavelength {
                     self.wavelength.interrupt();
                 }
+                if self.screen == Screen::Ito {
+                    self.ito.interrupt();
+                }
                 self.fih.interrupt();
                 self.fih_preview = FihPreview::new(&self.fih.pet, self.settings.power_saver);
                 self.mines.cancel_gesture();
@@ -481,6 +500,13 @@ impl App {
                     None,
                 );
                 self.screen = Screen::Multiplayer;
+            }
+            Action::NewIto => {
+                self.game.pause();
+                self.online.suspend();
+                self.ito.enter();
+                self.screen = Screen::Ito;
+                self.multiplayer = true;
             }
             Action::NewWavelength => {
                 self.game.pause();
@@ -546,6 +572,7 @@ impl App {
                 | Action::NewCodenames
                 | Action::NewTelephone
                 | Action::NewWavelength
+                | Action::NewIto
                 | Action::NewTennis
                 | Action::NewNonograms
                 | Action::NewSudoku
@@ -638,6 +665,7 @@ impl App {
             Screen::Fih
                 | Screen::Multiplayer
                 | Screen::Wavelength
+                | Screen::Ito
                 | Screen::Tennis
                 | Screen::Nonograms
                 | Screen::Sudoku
@@ -742,7 +770,7 @@ impl App {
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        let count = 6;
+        let count = if self.multiplayer { 7 } else { 6 };
         let grid = layout.game_grid_for(card_y, count);
         let viewport = Rect::new(x, card_y, width, (screen_height() - card_y - 16.).max(48.));
         let content_height = grid.content_height(count);
@@ -809,8 +837,10 @@ impl App {
                     wolves_art::preview(ui, preview_rect);
                 } else if index == 4 {
                     codenames_view::preview(ui, preview_rect);
-                } else {
+                } else if index == 5 {
                     telephone_view::preview(ui, preview_rect);
+                } else {
+                    ito_view::preview(ui, preview_rect);
                 }
             } else if index == 0 {
                 self.preview.draw(preview_rect);
@@ -833,6 +863,7 @@ impl App {
                     "Wolvesville",
                     "Codenames",
                     "Drawing Telephone",
+                    "Ito",
                 ][index]
             } else {
                 [
@@ -861,6 +892,7 @@ impl App {
                         "6–16",
                         "4–16",
                         "Draw · 3–12",
+                        "Local · 2–10",
                     ][index]
                 } else {
                     ["Classic", "Puzzle", "Pet", "vs CPU", "Puzzle", "Variants"][index]
@@ -902,8 +934,10 @@ impl App {
                         Action::NewWolves
                     } else if index == 4 {
                         Action::NewCodenames
-                    } else {
+                    } else if index == 5 {
                         Action::NewTelephone
+                    } else {
+                        Action::NewIto
                     }
                 } else if index == 0 {
                     Action::NewGame
@@ -1227,6 +1261,9 @@ async fn main() {
             if app.screen == Screen::Wavelength {
                 app.wavelength.interrupt();
             }
+            if app.screen == Screen::Ito {
+                app.ito.interrupt();
+            }
             input.cancel();
             app.mines.cancel_gesture();
             app.nonograms.cancel_gesture();
@@ -1240,6 +1277,9 @@ async fn main() {
         }
         if app.screen == Screen::Wavelength {
             app.wavelength.poll();
+        }
+        if app.screen == Screen::Ito {
+            app.ito.poll();
         }
         ui.begin(app.settings.power_saver, input.pointer);
         if is_key_pressed(KeyCode::Back) {
@@ -1291,6 +1331,12 @@ async fn main() {
                 } else {
                     Action::None
                 }
+            } else if app.screen == Screen::Ito {
+                if app.ito.back() {
+                    Action::Home
+                } else {
+                    Action::None
+                }
             } else if app.screen == Screen::Wavelength {
                 if app.wavelength.back() {
                     Action::Home
@@ -1337,6 +1383,13 @@ async fn main() {
                 } else {
                     Action::None
                 }
+            }
+            Screen::Ito => {
+                let (back, pulse) = app.ito.draw(&mut ui, input.pointer, &input.keys);
+                if let Some(pulse) = pulse {
+                    app.pulse(pulse, frame_start);
+                }
+                if back { Action::Home } else { Action::None }
             }
             Screen::Wavelength => {
                 let (back, pulse) = app.wavelength.draw(&mut ui, input.pointer, &input.keys);
@@ -1412,6 +1465,7 @@ async fn main() {
             || (app.screen == Screen::Home && app.home_pan.active())
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
             || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
+            || (app.screen == Screen::Ito && app.ito.needs_frame())
             || (app.screen == Screen::Fih
                 && app.fih.needs_frame(frame_start, app.settings.power_saver));
         let fps = app.fps.record(frame_start, continuous);
@@ -1428,6 +1482,7 @@ async fn main() {
                 } else if matches!(
                     app.screen,
                     Screen::Wavelength
+                        | Screen::Ito
                         | Screen::Tennis
                         | Screen::Multiplayer
                         | Screen::Nonograms
@@ -1441,6 +1496,7 @@ async fn main() {
                 if matches!(
                     app.screen,
                     Screen::Wavelength
+                        | Screen::Ito
                         | Screen::Tennis
                         | Screen::Multiplayer
                         | Screen::Nonograms
@@ -1483,6 +1539,7 @@ async fn main() {
                     app.fih.revision,
                     app.online.revision,
                     app.wavelength.revision,
+                    app.ito.revision,
                     app.tennis.game.revision,
                     (
                         app.nonograms.revision,
@@ -1513,12 +1570,13 @@ async fn main() {
             let message = match app.screen {
                 Screen::Multiplayer => app.online.announcement(),
                 Screen::Wavelength => app.wavelength.announcement(),
+                Screen::Ito => app.ito.announcement(),
                 Screen::Tennis => app.tennis.announcement(),
                 Screen::Nonograms => app.nonograms.announcement(ui.focused_item()),
                 Screen::Sudoku => app.sudoku.announcement(ui.focused_item()),
                 Screen::Home => {
                     if app.multiplayer {
-                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, Codenames, or Drawing Telephone. Coupe, Dicksit, Wolvesville, Codenames and Drawing Telephone use online rooms; Wavelength is local on this device.".to_owned()
+                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, Codenames, Drawing Telephone, or Ito. Coupe, Dicksit, Wolvesville, Codenames and Drawing Telephone use online rooms; Wavelength and Ito are local on this device.".to_owned()
                     } else {
                         "Jarcade. Games. Select Snake, Minesweeper, Fih, Table tennis, Nonograms, or Sudoku to play."
                             .to_owned()
@@ -1563,6 +1621,7 @@ async fn main() {
             }
         } else if (app.screen == Screen::Tennis && app.tennis.needs_frame())
             || (app.screen == Screen::Wavelength && app.wavelength.needs_frame())
+            || (app.screen == Screen::Ito && app.ito.needs_frame())
             || (app.screen == Screen::Multiplayer && app.online.needs_frame())
         {
             Some(if app.settings.power_saver {
