@@ -1,7 +1,7 @@
 /* Browser URLs/history only. Sidebar and page rendering remain in Rust. */
 (() => {
   "use strict";
-  const aliases = { snake:"snake", minesweeper:"minesweeper", fih:"fih", court:"coupe", coupe:"coupe", reverie:"dicksit", dicksit:"dicksit", wolves:"wolvesville", wolvesville:"wolvesville", codenames:"codenames", wavelength:"wavelength", "table-tennis":"table-tennis", nonograms:"nonograms", sudoku:"sudoku" };
+  const aliases = { snake:"snake", minesweeper:"minesweeper", fih:"fih", court:"coupe", coupe:"coupe", reverie:"dicksit", dicksit:"dicksit", wolves:"wolvesville", wolvesville:"wolvesville", codenames:"codenames", telephone:"drawing-telephone", "drawing-telephone":"drawing-telephone", wavelength:"wavelength", "table-tennis":"table-tennis", nonograms:"nonograms", sudoku:"sudoku" };
   const mobile = window.matchMedia("(pointer: coarse)").matches;
   let ready = false, initialized = false, route = initialRoute(), serial = 0;
   const events = [];

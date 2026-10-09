@@ -17,6 +17,7 @@ pub enum Route {
     Dicksit,
     Wolvesville,
     Codenames,
+    DrawingTelephone,
     Wavelength,
     TableTennis,
     Nonograms,
@@ -25,7 +26,7 @@ pub enum Route {
     SudokuPlay,
 }
 impl Route {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::SinglePlayer,
         Self::Multiplayer,
         Self::Settings,
@@ -42,6 +43,7 @@ impl Route {
         Self::Dicksit,
         Self::Wolvesville,
         Self::Codenames,
+        Self::DrawingTelephone,
         Self::Wavelength,
         Self::TableTennis,
         Self::Nonograms,
@@ -67,6 +69,7 @@ impl Route {
             Self::Dicksit => "/games/dicksit",
             Self::Wolvesville => "/games/wolvesville",
             Self::Codenames => "/games/codenames",
+            Self::DrawingTelephone => "/games/drawing-telephone",
             Self::Wavelength => "/games/wavelength",
             Self::TableTennis => "/games/table-tennis",
             Self::Nonograms => "/games/nonograms",
@@ -98,6 +101,7 @@ impl Route {
             Self::Dicksit => "Dicksit",
             Self::Wolvesville => "Wolvesville",
             Self::Codenames => "Codenames",
+            Self::DrawingTelephone => "Drawing Telephone",
             Self::Wavelength => "Wavelength",
             Self::TableTennis => "Table tennis",
             Self::Nonograms | Self::NonogramsPlay => "Nonograms",

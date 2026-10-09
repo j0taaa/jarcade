@@ -636,7 +636,7 @@ unsafe extern "C" {
 pub fn load_online() -> String {
     #[cfg(target_arch = "wasm32")]
     {
-        let mut data = [0u8; 4096];
+        let mut data = vec![0u8; 131072];
         // SAFETY: bundled plugin copies at most the supplied buffer capacity.
         let n = unsafe { jarcade_session_load(data.as_mut_ptr(), data.len()) }.min(data.len());
         String::from_utf8_lossy(&data[..n]).into_owned()
@@ -694,6 +694,7 @@ pub fn invite() -> Option<(jarcade::multiplayer::GameKind, String)> {
             "reverie" => jarcade::multiplayer::GameKind::Reverie,
             "wolves" => jarcade::multiplayer::GameKind::Wolves,
             "codenames" => jarcade::multiplayer::GameKind::Codenames,
+            "telephone" => jarcade::multiplayer::GameKind::Telephone,
             _ => return None,
         };
         Some((

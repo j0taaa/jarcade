@@ -12,6 +12,7 @@ mod online_view;
 mod platform;
 mod sudoku_view;
 mod table_tennis_view;
+mod telephone_view;
 mod ui;
 mod wavelength_view;
 mod wolves_art;
@@ -62,6 +63,7 @@ enum Action {
     NewReverie,
     NewWolves,
     NewCodenames,
+    NewTelephone,
     NewWavelength,
     NewTennis,
     NewNonograms,
@@ -190,6 +192,7 @@ impl App {
                 GameKind::Reverie => Route::Dicksit,
                 GameKind::Wolves => Route::Wolvesville,
                 GameKind::Codenames => Route::Codenames,
+                GameKind::Telephone => Route::DrawingTelephone,
             },
             Screen::Wavelength => Route::Wavelength,
             Screen::Tennis => Route::TableTennis,
@@ -216,6 +219,7 @@ impl App {
         self.mines.cancel_gesture();
         self.nonograms.cancel_gesture();
         self.sudoku.cancel_gesture();
+        self.online.cancel_gesture();
         self.home_pan.cancel();
         if self.screen == Screen::Wavelength {
             self.wavelength.interrupt();
@@ -291,11 +295,16 @@ impl App {
                 self.multiplayer = true;
             }
             Route::TableTennis => self.screen = Screen::Tennis,
-            Route::Coupe | Route::Dicksit | Route::Wolvesville | Route::Codenames => {
+            Route::Coupe
+            | Route::Dicksit
+            | Route::Wolvesville
+            | Route::Codenames
+            | Route::DrawingTelephone => {
                 let kind = match route {
                     Route::Dicksit => GameKind::Reverie,
                     Route::Wolvesville => GameKind::Wolves,
                     Route::Codenames => GameKind::Codenames,
+                    Route::DrawingTelephone => GameKind::Telephone,
                     _ => GameKind::Court,
                 };
                 if previous != Screen::Multiplayer || self.online.game != kind {
@@ -451,7 +460,11 @@ impl App {
                 self.mines.choose_size();
                 self.screen = Screen::Mines;
             }
-            Action::NewCourt | Action::NewReverie | Action::NewWolves | Action::NewCodenames => {
+            Action::NewCourt
+            | Action::NewReverie
+            | Action::NewWolves
+            | Action::NewCodenames
+            | Action::NewTelephone => {
                 self.game.pause();
                 self.online.enter(
                     if matches!(action, Action::NewCourt) {
@@ -460,6 +473,8 @@ impl App {
                         jarcade::multiplayer::GameKind::Reverie
                     } else if matches!(action, Action::NewWolves) {
                         jarcade::multiplayer::GameKind::Wolves
+                    } else if matches!(action, Action::NewTelephone) {
+                        jarcade::multiplayer::GameKind::Telephone
                     } else {
                         jarcade::multiplayer::GameKind::Codenames
                     },
@@ -529,6 +544,7 @@ impl App {
                 | Action::NewReverie
                 | Action::NewWolves
                 | Action::NewCodenames
+                | Action::NewTelephone
                 | Action::NewWavelength
                 | Action::NewTennis
                 | Action::NewNonograms
@@ -726,7 +742,7 @@ impl App {
             self.multiplayer = true;
         }
         let card_y = tabs_y + if screen_height() < 500. { 54. } else { 68. };
-        let count = if self.multiplayer { 5 } else { 6 };
+        let count = 6;
         let grid = layout.game_grid_for(card_y, count);
         let viewport = Rect::new(x, card_y, width, (screen_height() - card_y - 16.).max(48.));
         let content_height = grid.content_height(count);
@@ -791,8 +807,10 @@ impl App {
                     wavelength_view::preview(ui, preview_rect);
                 } else if index == 3 {
                     wolves_art::preview(ui, preview_rect);
-                } else {
+                } else if index == 4 {
                     codenames_view::preview(ui, preview_rect);
+                } else {
+                    telephone_view::preview(ui, preview_rect);
                 }
             } else if index == 0 {
                 self.preview.draw(preview_rect);
@@ -808,7 +826,14 @@ impl App {
                 self.sudoku.preview(ui, preview_rect);
             }
             let title = if self.multiplayer {
-                ["Coupe", "Dicksit", "Wavelength", "Wolvesville", "Codenames"][index]
+                [
+                    "Coupe",
+                    "Dicksit",
+                    "Wavelength",
+                    "Wolvesville",
+                    "Codenames",
+                    "Drawing Telephone",
+                ][index]
             } else {
                 [
                     "Snake",
@@ -829,7 +854,14 @@ impl App {
             );
             ui.label(
                 if self.multiplayer {
-                    ["Bluff · 2–6", "Stories · 3–8", "Local · 2+", "6–16", "4–16"][index]
+                    [
+                        "Bluff · 2–6",
+                        "Stories · 3–8",
+                        "Local · 2+",
+                        "6–16",
+                        "4–16",
+                        "Draw · 3–12",
+                    ][index]
                 } else {
                     ["Classic", "Puzzle", "Pet", "vs CPU", "Puzzle", "Variants"][index]
                 },
@@ -868,8 +900,10 @@ impl App {
                         Action::NewWavelength
                     } else if index == 3 {
                         Action::NewWolves
-                    } else {
+                    } else if index == 4 {
                         Action::NewCodenames
+                    } else {
+                        Action::NewTelephone
                     }
                 } else if index == 0 {
                     Action::NewGame
@@ -1197,6 +1231,7 @@ async fn main() {
             app.mines.cancel_gesture();
             app.nonograms.cancel_gesture();
             app.sudoku.cancel_gesture();
+            app.online.cancel_gesture();
             app.home_pan.cancel();
             input.interrupted = false;
         }
@@ -1297,7 +1332,7 @@ async fn main() {
         app.advance(frame_start);
         let page_action = match app.screen {
             Screen::Multiplayer => {
-                if app.online.draw(&mut ui, input.pointer) {
+                if app.online.draw(&mut ui, input.pointer, &input.keys) {
                     Action::Home
                 } else {
                     Action::None
@@ -1483,7 +1518,7 @@ async fn main() {
                 Screen::Sudoku => app.sudoku.announcement(ui.focused_item()),
                 Screen::Home => {
                     if app.multiplayer {
-                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, or Codenames. Coupe, Dicksit, Wolvesville and Codenames use online rooms; Wavelength is local on this device.".to_owned()
+                        "Jarcade. Multiplayer. Select Coupe, Dicksit, Wavelength, Wolvesville, Codenames, or Drawing Telephone. Coupe, Dicksit, Wolvesville, Codenames and Drawing Telephone use online rooms; Wavelength is local on this device.".to_owned()
                     } else {
                         "Jarcade. Games. Select Snake, Minesweeper, Fih, Table tennis, Nonograms, or Sudoku to play."
                             .to_owned()

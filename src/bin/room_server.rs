@@ -12,7 +12,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use jarcade::multiplayer::{
     self as mp, ClientMessage, Command, GameKind, MemberView, RoomView, ServerMessage, Session,
-    codenames, coup, reverie, wolves,
+    codenames, coup, reverie, telephone, wolves,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -71,6 +71,7 @@ enum Match {
     Reverie(reverie::Game),
     Wolves(wolves::Game),
     Codenames(codenames::Game),
+    Telephone(telephone::Game),
 }
 impl Match {
     fn finished(&self) -> bool {
@@ -79,6 +80,7 @@ impl Match {
             Self::Reverie(g) => g.finished(),
             Self::Wolves(g) => g.finished(),
             Self::Codenames(g) => g.finished(),
+            Self::Telephone(g) => g.finished(),
         }
     }
     fn phase_key(&self) -> String {
@@ -93,6 +95,7 @@ impl Match {
             }
             Self::Wolves(g) => format!("{:?}:{}", g.phase, g.day),
             Self::Codenames(g) => g.phase_key(),
+            Self::Telephone(g) => g.phase_key(),
         }
     }
 }
@@ -141,6 +144,10 @@ impl Room {
                 Some(Match::Wolves(g)) => Some(g.view(you)),
                 _ => None,
             },
+            telephone: match &self.board {
+                Some(Match::Telephone(g)) => Some(g.view(you)),
+                _ => None,
+            },
             wolves_setup: (self.game == GameKind::Wolves).then(|| self.wolves_setup.clone()),
             codenames: match &self.board {
                 Some(Match::Codenames(g)) => Some(g.view(you)),
@@ -186,6 +193,9 @@ impl Room {
                 }
                 let names = self.seats.iter().map(|s| s.name.clone()).collect();
                 self.board = Some(match self.game {
+                    GameKind::Telephone => {
+                        Match::Telephone(telephone::Game::new(self.seats.len(), rand::random())?)
+                    }
                     GameKind::Codenames => Match::Codenames(codenames::Game::new(
                         self.seats.len(),
                         rand::random(),
@@ -263,6 +273,17 @@ impl Room {
                     s.ready = i == self.host;
                 }
                 self.epoch = self.epoch.wrapping_add(1);
+            }
+            Command::Telephone(movement) => {
+                if matches!(movement, telephone::Move::Next | telephone::Move::Previous)
+                    && you != self.host
+                {
+                    return Err("Only the host turns the album pages");
+                }
+                match &mut self.board {
+                    Some(Match::Telephone(g)) => g.play(you, movement)?,
+                    _ => return Err("This is not an active Drawing Telephone game"),
+                }
             }
             Command::Codenames(movement) => match &mut self.board {
                 Some(Match::Codenames(g)) => g.play(you, movement)?,
@@ -572,6 +593,7 @@ fn handle(
                     Some(Match::Reverie(g)) => g.end_on_leave(you),
                     Some(Match::Wolves(g)) => g.forfeit(you, now()),
                     Some(Match::Codenames(g)) => g.forfeit(you),
+                    Some(Match::Telephone(g)) => g.forfeit(you),
                     None => {
                         if room.game == GameKind::Codenames {
                             room.codenames_setup.resize(room.seats.len());
@@ -683,8 +705,8 @@ async fn upgrade(
         .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
     let guard = ConnectionGuard;
     Ok(ws
-        .max_message_size(16384)
-        .max_frame_size(16384)
+        .max_message_size(65536)
+        .max_frame_size(65536)
         .on_upgrade(move |ws| async move {
             let _guard = guard;
             socket(ws, shared, addr.ip()).await
@@ -703,7 +725,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/health",
             get(|| async {
-                Json(serde_json::json!({"status":"ok","games":["court","reverie","wolves","codenames"],"protocol":1}))
+                Json(serde_json::json!({"status":"ok","games":["court","reverie","wolves","codenames","telephone"],"protocol":1}))
             }),
         )
         .fallback_service(ServeDir::new(&assets))
@@ -759,6 +781,145 @@ mod tests {
             msg,
         );
         (rx, binding)
+    }
+    #[test]
+    fn telephone_concurrent_tasks_privacy_resume_and_host_handoff() {
+        let shared = hub();
+        let (_, binding) = attach(
+            &shared,
+            1,
+            ClientMessage::Create {
+                game: GameKind::Telephone,
+                name: "Mila".into(),
+            },
+        );
+        let (code, token) = binding.clone().unwrap();
+        for i in 1..3 {
+            attach(
+                &shared,
+                i as u64 + 1,
+                ClientMessage::Join {
+                    room: code.clone(),
+                    name: format!("Friend {i}"),
+                },
+            );
+        }
+        let mut hub = shared.lock().unwrap();
+        let r = hub.rooms.get_mut(&code).unwrap();
+        for i in 1..3 {
+            r.command(i, r.epoch, Command::Ready(true)).unwrap();
+        }
+        assert!(r.command(1, r.epoch, Command::Start).is_err());
+        r.command(0, r.epoch, Command::Start).unwrap();
+        let epoch = r.epoch;
+        for i in 0..3 {
+            r.command(
+                i,
+                epoch,
+                Command::Telephone(telephone::Move::Text {
+                    text: format!("Secret {i}"),
+                }),
+            )
+            .unwrap();
+            if i < 2 {
+                assert_eq!(r.epoch, epoch);
+                let view = serde_json::to_string(&r.view((i + 1) % 3)).unwrap();
+                assert!(!view.contains("Secret"));
+                assert!(
+                    r.command(
+                        i,
+                        epoch,
+                        Command::Telephone(telephone::Move::Text {
+                            text: "Duplicate".into()
+                        })
+                    )
+                    .is_err()
+                );
+            }
+        }
+        assert!(r.epoch > epoch);
+        assert!(
+            r.command(
+                0,
+                epoch,
+                Command::Telephone(telephone::Move::Draw {
+                    drawing: telephone::Drawing::default()
+                })
+            )
+            .is_err()
+        );
+        for i in 0..3 {
+            let v = r.view(i).telephone.unwrap();
+            assert!(matches!(v.task, Some(telephone::Content::Text(_))));
+            assert!(v.entry.is_none());
+        }
+        hub.save().unwrap();
+        let path = hub.path.clone();
+        drop(hub);
+        let loaded = Hub::load(path.clone()).unwrap();
+        let restored = Arc::new(Mutex::new(loaded));
+        let (mut rx, mut resumed) = attach(
+            &restored,
+            10,
+            ClientMessage::Resume {
+                room: code.clone(),
+                token,
+            },
+        );
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ServerMessage::Welcome { .. }
+        ));
+        assert!(resumed.is_some());
+        let (tx, _) = mpsc::channel(32);
+        handle(
+            &restored,
+            &tx,
+            10,
+            &mut resumed,
+            "127.0.0.1".parse().unwrap(),
+            ClientMessage::Leave,
+        );
+        let mut hub = restored.lock().unwrap();
+        let r = hub.rooms.get_mut(&code).unwrap();
+        assert_eq!(r.host, 1);
+        assert!(r.view(1).telephone.unwrap().left[0]);
+        for stage in 1..3 {
+            let epoch = r.epoch;
+            for i in 1..3 {
+                let movement = if stage == 1 {
+                    telephone::Move::Draw {
+                        drawing: telephone::Drawing {
+                            strokes: vec![telephone::Stroke {
+                                color: 1,
+                                width: 6,
+                                points: vec![[0, 0], [1000, 750]],
+                            }],
+                        },
+                    }
+                } else {
+                    telephone::Move::Text {
+                        text: "A tiny dinosaur".into(),
+                    }
+                };
+                r.command(i, epoch, Command::Telephone(movement)).unwrap();
+            }
+        }
+        assert_eq!(r.view(1).telephone.unwrap().phase, telephone::Phase::Reveal);
+        assert!(
+            r.command(2, r.epoch, Command::Telephone(telephone::Move::Next))
+                .is_err()
+        );
+        for _ in 0..9 {
+            r.command(1, r.epoch, Command::Telephone(telephone::Move::Next))
+                .unwrap();
+        }
+        assert!(r.board.as_ref().unwrap().finished());
+        r.command(1, r.epoch, Command::Rematch).unwrap();
+        assert!(r.board.is_none());
+        assert_eq!(r.seats.len(), 2);
+        assert_eq!(r.host, 0);
+        std::fs::remove_file(path).unwrap();
     }
     #[test]
     fn lobby_authority_private_views_and_persistent_resume() {

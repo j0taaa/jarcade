@@ -1,7 +1,7 @@
 # Jarcade
 
 A small Rust / Macroquad arcade with shared game and UI code for desktop, web,
-Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, Table tennis, Wolvesville, Codenames, Nonograms, and Sudoku.
+Android, and iOS. Play Snake, Minesweeper, Fih, Coupe, Dicksit, Wavelength, Table tennis, Wolvesville, Codenames, Drawing Telephone, Nonograms, and Sudoku.
 
 Public site: <https://jarcade.jaypussy.site>. Source: <https://github.com/j0taaa/jarcade>. Hosting uses this PC and the
 existing Cloudflare/Tailscale route. This PC must stay awake and both it and
@@ -35,7 +35,7 @@ bash scripts/build-web.sh
 cargo run --release --features server --bin jarcade-server
 ```
 
-Open <http://localhost:8091>. A plain static server can run solo games and local Wavelength; online Coupe, Dicksit, Wolvesville, and Codenames require the room service. To update the public site:
+Open <http://localhost:8091>. A plain static server can run solo games and local Wavelength; online Coupe, Dicksit, Wolvesville, Codenames, and Drawing Telephone require the room service. To update the public site:
 
 ```sh
 host-app proxy jarcade 8091
@@ -646,3 +646,27 @@ The current puzzle, marks, colours and undo/redo history persist in browser
 storage or `sudoku.json` in the OS app-data folder. Malformed or ambiguous
 saves are rejected. Rules and generation live in `src/sudoku.rs` and
 `src/sudoku/`; the responsive UI is in `src/sudoku_view.rs`.
+
+
+## Drawing Telephone
+
+Open **Multiplayer → Drawing Telephone**, or `/games/drawing-telephone`, and invite
+3–12 friends on their own devices using the room code or invite link. Everyone
+writes a starting sentence, then alternates drawing the received sentence and
+describing the received sketch. All players contribute simultaneously; each story
+visits every player once. Only the immediately preceding contribution is visible.
+There are no scores or timers. The host reveals the albums together, page by page,
+then can start a new round.
+
+Draw with finger or mouse. Select colours, brush sizes, or the white eraser; use
+undo, redo and clear before sealing your contribution. Ctrl/Cmd+Z undoes and
+Shift+Ctrl/Cmd+Z redoes. Confirm before passing work on. Draft sketches and sentences
+are saved locally after edits; reconnect restores your seat and task. Closing the
+page does not forfeit a seat. Explicitly leaving skips remaining contributions so
+the group can finish; host authority passes to another remaining player.
+
+Rules and private projections are in `src/multiplayer/telephone.rs`; the shared
+vector interface is in `src/telephone_view.rs`. Drawings have bounded, normalized
+coordinates (1000 × 750), at most 128 strokes and 4096 points, and travel only on
+submission. The server validates brush data, task types, duplicate submissions and
+host-only album navigation. Waiting screens have no polling or animation loop.

@@ -2,6 +2,7 @@
 pub mod codenames;
 pub mod coup;
 pub mod reverie;
+pub mod telephone;
 pub mod wolves;
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,7 @@ pub enum GameKind {
     Reverie,
     Wolves,
     Codenames,
+    Telephone,
 }
 impl GameKind {
     pub fn title(self) -> &'static str {
@@ -21,6 +23,7 @@ impl GameKind {
             Self::Reverie => "Dicksit",
             Self::Wolves => "Wolvesville",
             Self::Codenames => "Codenames",
+            Self::Telephone => "Drawing Telephone",
         }
     }
     pub fn limits(self) -> (usize, usize) {
@@ -29,6 +32,7 @@ impl GameKind {
             Self::Reverie => (3, 8),
             Self::Wolves => (6, 16),
             Self::Codenames => (4, 16),
+            Self::Telephone => (3, 12),
         }
     }
 }
@@ -52,6 +56,7 @@ pub enum Command {
     Wolves(wolves::Move),
     WolvesSetup(wolves::Setup),
     Codenames(codenames::Move),
+    Telephone(telephone::Move),
     CodenamesSeat(codenames::Seat),
     CodenamesLanguage(codenames::Language),
 }
@@ -96,6 +101,8 @@ pub struct RoomView {
     pub codenames: Option<codenames::View>,
     #[serde(default)]
     pub codenames_setup: Option<codenames::Setup>,
+    #[serde(default)]
+    pub telephone: Option<telephone::View>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

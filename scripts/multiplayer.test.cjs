@@ -40,3 +40,16 @@ test('clean game routes load public room invites and copied links contain no pri
  const link=new URL(copied);assert.equal(link.pathname,'/games/coupe');assert.equal(link.search,'?room=ABC123');
  assert(!copied.includes('token'));assert(!copied.includes('game='));
 });
+
+
+test('Drawing Telephone route invites contain only the room code and vector drafts retain UTF-8 data',async()=>{
+ const s=setup();s.ctx.location.pathname='/games/drawing-telephone';s.ctx.location.search='?room=ABC123';
+ assert.deepEqual(JSON.parse(s.poll(s.env.jarcade_invite_load)),{game:'telephone',room:'ABC123'});
+ let copied;s.ctx.navigator.clipboard={writeText:async value=>{copied=value;}};
+ s.env.jarcade_copy_invite(0,s.put('{"game":"telephone","room":"ABC123"}'));
+ const link=new URL(copied);assert.equal(link.pathname,'/games/drawing-telephone');assert.equal(link.search,'?room=ABC123');
+ assert(!copied.includes('token'));assert(!copied.includes('game='));
+ const draft=JSON.stringify({sessions:[{game:'telephone',room:'ABC123',token:'private'}],telephone_draft:{key:'ABC123:0:1',text:'Um peixe na lua 🐟',drawing:{strokes:[{color:1,width:6,points:Array(4096).fill([1000,750])}]}}});
+ assert(draft.length>4096);assert.equal(s.env.jarcade_session_save(0,s.put(draft)),1);
+ assert.equal(s.poll(s.env.jarcade_session_load),draft);
+});

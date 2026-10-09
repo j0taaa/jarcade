@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 struct Saved {
     name: String,
     sessions: Vec<Session>,
+    #[serde(default)]
+    telephone_draft: Option<crate::telephone_view::Draft>,
 }
 pub struct OnlinePage {
     pub game: GameKind,
@@ -48,6 +50,7 @@ pub struct OnlinePage {
     sent: Option<u64>,
     wolves_ui: crate::wolves_view::WolvesUi,
     codenames_ui: crate::codenames_view::CodenamesUi,
+    telephone_ui: crate::telephone_view::TelephoneUi,
 }
 impl OnlinePage {
     pub fn new() -> Self {
@@ -80,6 +83,7 @@ impl OnlinePage {
             sent: None,
             wolves_ui: crate::wolves_view::WolvesUi::default(),
             codenames_ui: crate::codenames_view::CodenamesUi::new(),
+            telephone_ui: crate::telephone_view::TelephoneUi::new(),
         }
     }
     pub fn enter(&mut self, game: GameKind, code: Option<String>) {
@@ -87,6 +91,7 @@ impl OnlinePage {
         self.game = game;
         self.wolves_ui = crate::wolves_view::WolvesUi::default();
         self.codenames_ui = crate::codenames_view::CodenamesUi::new();
+        self.telephone_ui = crate::telephone_view::TelephoneUi::new();
         self.room = None;
         self.help = false;
         self.clue_open = false;
@@ -101,7 +106,28 @@ impl OnlinePage {
         self.preview = None;
         self.revision += 1;
     }
+    fn save_telephone_draft(&mut self) {
+        if let Some(room) = &self.room
+            && room.telephone.as_ref().is_some_and(|g| {
+                g.phase == jarcade::multiplayer::telephone::Phase::Play && !g.submitted[room.you]
+            })
+        {
+            self.saved.telephone_draft = Some(crate::telephone_view::Draft {
+                key: crate::telephone_view::TelephoneUi::key(room),
+                drawing: self.telephone_ui.drawing.clone(),
+                text: self.fields[2].clone(),
+            });
+            self.persist();
+        }
+    }
+    pub fn cancel_gesture(&mut self) {
+        self.telephone_ui.cancel();
+        if self.telephone_ui.take_dirty() {
+            self.save_telephone_draft();
+        }
+    }
     pub fn suspend(&mut self) {
+        self.cancel_gesture();
         self.network.close();
         self.connected = false;
         self.connecting = false;
@@ -157,7 +183,7 @@ impl OnlinePage {
     }
     pub fn poll(&mut self) {
         while let Some(edit) = platform::editor_poll() {
-            let id = if matches!(edit.id, 5 | 6) { 2 } else { edit.id };
+            let id = if matches!(edit.id, 5..=7) { 2 } else { edit.id };
             if id < 3 {
                 self.fields[id] = if id == 1 {
                     edit.text
@@ -178,6 +204,9 @@ impl OnlinePage {
                         },
                     )
                 };
+                if id == 2 && self.game == GameKind::Telephone {
+                    self.save_telephone_draft();
+                }
                 if edit.done {
                     self.editing = None;
                 }
@@ -202,11 +231,17 @@ impl OnlinePage {
                         }
                 {
                     self.fields[id].push(c);
+                    if id == 2 && self.game == GameKind::Telephone {
+                        self.save_telephone_draft();
+                    }
                     self.revision += 1;
                 }
             }
             if is_key_pressed(KeyCode::Backspace) {
                 self.fields[id].pop();
+                if id == 2 && self.game == GameKind::Telephone {
+                    self.save_telephone_draft();
+                }
                 self.revision += 1;
             }
             if is_key_pressed(KeyCode::Enter) {
@@ -244,6 +279,12 @@ impl OnlinePage {
                     if self.room.as_ref().map(phase_key) != Some(phase) {
                         self.wolves_ui.phase_changed();
                         self.codenames_ui.phase_changed();
+                        if room.telephone.is_some() {
+                            let key = crate::telephone_view::TelephoneUi::key(&room);
+                            let draft =
+                                self.saved.telephone_draft.as_ref().filter(|d| d.key == key);
+                            self.telephone_ui.restore(draft);
+                        }
                         self.selected.clear();
                         self.exchange.clear();
                         self.target = None;
@@ -251,6 +292,18 @@ impl OnlinePage {
                         self.clue_open = false;
                         if self.game != GameKind::Wolves {
                             self.fields[2].clear();
+                        }
+                        if room.telephone.is_some() {
+                            if let Some(d) =
+                                self.saved.telephone_draft.as_ref().filter(|d| {
+                                    d.key == crate::telephone_view::TelephoneUi::key(&room)
+                                })
+                            {
+                                self.fields[2] = d.text.clone();
+                            } else {
+                                self.saved.telephone_draft = None;
+                                self.persist();
+                            }
                         }
                         self.pan = BoardPan::default();
                         self.close_editor();
@@ -282,6 +335,7 @@ impl OnlinePage {
             || self.pan.active()
             || self.wolves_ui.active()
             || self.codenames_ui.active()
+            || self.telephone_ui.active()
     }
     pub fn delay(&self) -> Option<f64> {
         #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -325,6 +379,30 @@ impl OnlinePage {
                         .collect::<Vec<_>>()
                         .join(". "),
                 );
+            } else if let Some(g) = &room.telephone {
+                text.push_str(&format!(
+                    "{:?}. Turn {} of {}. ",
+                    g.phase,
+                    g.stage.min(g.rounds - 1) + 1,
+                    g.rounds
+                ));
+                if let Some(jarcade::multiplayer::telephone::Content::Text(t)) = &g.task {
+                    text.push_str(&format!("Draw: {t}. "));
+                }
+                if let Some(e) = &g.entry {
+                    text.push_str(&format!(
+                        "Album {}, page {} by {}. ",
+                        g.album + 1,
+                        g.step + 1,
+                        room.members[e.author].name
+                    ));
+                    if let jarcade::multiplayer::telephone::Content::Text(t) = &e.content {
+                        text.push_str(t);
+                    }
+                }
+                if g.phase == jarcade::multiplayer::telephone::Phase::Play {
+                    text.push_str(if g.submitted[room.you] {"Sealed. Waiting for friends."}else if g.stage.is_multiple_of(2) {"Write a sentence."}else {"Draw with finger or mouse. Brush colours and sizes. Undo, redo, clear, then seal drawing."});
+                }
             } else if let Some(g) = &room.codenames {
                 let seat = g.seats[room.you];
                 text.push_str(&format!(
@@ -472,14 +550,24 @@ impl OnlinePage {
             );
         }
     }
-    pub fn draw(&mut self, ui: &mut Ui, press: Option<Vec2>) -> bool {
-        let back = self.draw_page(ui, press);
+    pub fn draw(
+        &mut self,
+        ui: &mut Ui,
+        press: Option<Vec2>,
+        keys: &[(KeyCode, miniquad::KeyMods, bool)],
+    ) -> bool {
+        let back = self.draw_page(ui, press, keys);
         if ui.activated {
             self.revision += 1;
         }
         back
     }
-    fn draw_page(&mut self, ui: &mut Ui, press: Option<Vec2>) -> bool {
+    fn draw_page(
+        &mut self,
+        ui: &mut Ui,
+        press: Option<Vec2>,
+        keys: &[(KeyCode, miniquad::KeyMods, bool)],
+    ) -> bool {
         let (accent, panel, line) = style::palette(self.game, ui.theme.saver);
         ui.theme.accent = accent;
         ui.theme.panel = panel;
@@ -547,6 +635,7 @@ impl OnlinePage {
                         || r.reverie.is_some()
                         || r.wolves.is_some()
                         || r.codenames.is_some()
+                        || r.telephone.is_some()
                 }) {
                     "Leaving ends your participation."
                 } else {
@@ -619,6 +708,27 @@ impl OnlinePage {
                     Rect::new(x, 66., width, screen_height() - 82.),
                 );
                 self.wolves_outcome(out);
+                self.error_banner(ui, x, width);
+            } else if room.telephone.is_some() {
+                let out = self.telephone_ui.draw(
+                    ui,
+                    press,
+                    keys,
+                    &room,
+                    (&self.fields[2], self.editing == Some(2)),
+                    Rect::new(x, 66., width, screen_height() - 82.),
+                );
+                if self.telephone_ui.take_dirty() {
+                    self.save_telephone_draft();
+                    self.revision += 1;
+                }
+                if let Some(rect) = out.editor {
+                    self.editing = Some(2);
+                    platform::editor_open(&self.fields[2], 7, rect, 160);
+                }
+                if let Some(command) = out.command {
+                    self.play(command);
+                }
                 self.error_banner(ui, x, width);
             } else if let Some(game) = &room.codenames {
                 let out = self.codenames_ui.draw(
@@ -738,7 +848,9 @@ impl OnlinePage {
                 ui.theme.accent,
             );
         }
-        if self.game == GameKind::Court {
+        if self.game == GameKind::Telephone {
+            crate::telephone_view::preview(ui, art);
+        } else if self.game == GameKind::Court {
             card_art::preview(ui, art);
         } else if self.game == GameKind::Codenames {
             crate::codenames_view::preview(ui, art);
@@ -755,7 +867,9 @@ impl OnlinePage {
             ui.theme.text,
             true,
         );
-        let tagline = if self.game == GameKind::Court {
+        let tagline = if self.game == GameKind::Telephone {
+            "A sentence. A sketch. A beautiful mix-up."
+        } else if self.game == GameKind::Court {
             "A little charm. A lot of bluff."
         } else if self.game == GameKind::Codenames {
             "One word. A whole secret mission."
@@ -902,6 +1016,8 @@ impl OnlinePage {
         ui.centered(
             if self.game == GameKind::Wolves {
                 "YOUR VILLAGE"
+            } else if self.game == GameKind::Telephone {
+                "YOUR SKETCHBOOK"
             } else {
                 "YOUR TABLE"
             },
@@ -921,6 +1037,8 @@ impl OnlinePage {
         ui.centered(
             if self.game == GameKind::Wolves {
                 "Share the code. Keep your role secret."
+            } else if self.game == GameKind::Telephone {
+                "Share the code. Bring a little imagination."
             } else {
                 "Share the code. Pull up a seat."
             },
@@ -1078,6 +1196,8 @@ impl OnlinePage {
             ui,
             if self.game == GameKind::Wolves {
                 "Leave village"
+            } else if self.game == GameKind::Telephone {
+                "Leave room"
             } else {
                 "Leave table"
             },
@@ -2087,6 +2207,8 @@ impl OnlinePage {
                     "Room code",
                     if self.game == GameKind::Wolves {
                         "Your message"
+                    } else if self.game == GameKind::Telephone {
+                        "Your sentence"
                     } else {
                         "Your clue"
                     },
@@ -2164,7 +2286,9 @@ impl OnlinePage {
     }
     fn draw_help(&mut self, ui: &mut Ui, press: Option<Vec2>, x: f32, width: f32) {
         let viewport = Rect::new(x, 66., width, screen_height() - 82.);
-        let lines: Vec<String> = if self.game == GameKind::Court {
+        let lines: Vec<String> = if self.game == GameKind::Telephone {
+            vec!["Invite 3–12 friends on their own devices. Everyone gets ready, then the host starts. Keep each screen private.".into(),"Everyone writes a starting sentence at the same time. Each following turn, draw the sentence you receive or describe the drawing you receive. You see only the previous contribution. There are as many turns as players, so everyone visits every story.".into(),"Use your finger or mouse to draw. Pick an ink colour and brush size. The white swatch is an eraser; the arrow icons undo and redo, and the bin clears the sketch. Ctrl/Cmd+Z undoes, Shift+Ctrl/Cmd+Z redoes. Seal your work when ready and confirm to pass it on.".into(),"There is no timer or score. Wait until everyone has submitted. At the end the host reveals each album, one page at a time. Compare the original sentence with what it became!".into(),"Back preserves your reconnect seat and saves your unfinished sketch or sentence. Reconnect resumes the same task. Leaving skips your remaining contributions so friends can finish. The host can start a new round after all albums are revealed.".into()]
+        } else if self.game == GameKind::Court {
             vec!["Two influences. Be the last player with one hidden.".into(),"Claim any role, even when you are bluffing. Everyone may challenge a claim before allowing it. A truthful claim replaces the shown card; the challenger loses an influence. A bluff loses an influence and the action fails.".into(),"Income: +1, cannot be challenged or blocked. Foreign aid: +2, anyone may block as Regent. Coup: pay 7 to remove an influence, cannot be blocked. At 10 coins a Coup is mandatory.".into(),"Regent (Duke): Tax +3; blocks Foreign aid.".into(),"Shade (Assassin): pay 3 to remove an influence. Sentinel can block. The cost is paid even if blocked or challenged. A failed challenge followed by assassination can cost two influences.".into(),"Corsair (Captain): steal up to 2 coins. The target can block as Corsair or Envoy.".into(),"Envoy (Ambassador): draw 2 cards, choose your remaining influences, return the rest.".into(),"Sentinel (Contessa): blocks assassination.".into(),"Scroll to see the table, actions and recent turns. Tab/Enter select; arrows/Page Up/Down scroll. Other devices join with the room code. Back to the arcade saves your seat; Leave forfeits it. Reconnect resumes your hidden hand.".into()]
         } else if self.game == GameKind::Codenames {
             vec!["Split into red and blue teams, with exactly one spymaster and at least one operative per team. The host chooses an English or Portuguese word deck. Everyone gets ready, then the host starts.".into(), "Only spymasters see the secret key. The starting team has 9 agents, the other has 8. Seven cards are bystanders; one is the assassin.".into(), "The active spymaster gives one word and a number. The clue must relate to meanings, never a visible word or part of one. The server checks the word format and board overlap; friends judge whether its meaning is fair.".into(), "Tap the number to cycle 0 through 9 and infinity. A numbered clue permits that many guesses plus one extra. Zero means avoid this association and, like infinity, permits unlimited guesses.".into(), "Operatives discuss out loud or in their own call, select a word, then confirm its reveal. Guess at least once before ending the turn. An opposing agent or bystander ends the turn; the assassin immediately loses the match.".into(), "The first team with all its agents revealed wins, even when its last agent was chosen by the other team. The finished board reveals the key. The host can open a new mission.".into(), "Each player uses a separate device. Keep spymaster screens private. Board drags scroll without choosing a card. Tab/Enter select; arrows scroll. Back preserves your seat; Reconnect resumes it. Explicitly leaving awards the other team the match.".into()]
@@ -2208,7 +2332,9 @@ impl OnlinePage {
     }
 }
 fn phase_key(r: &RoomView) -> String {
-    if let Some(g) = &r.court {
+    if let Some(g) = &r.telephone {
+        format!("{:?}:{}:{}:{}", g.phase, g.stage, g.album, g.step)
+    } else if let Some(g) = &r.court {
         format!("{}:{}:{}", r.epoch, g.phase, g.turn)
     } else if let Some(g) = &r.reverie {
         format!("{}:{}:{}", g.phase, g.round, g.storyteller)
