@@ -724,3 +724,27 @@ static boards sleep even when the FPS counter is enabled. Gameplay and save
 validation are in `src/local_pair.rs`, rendering in `src/local_pair_view.rs`.
 Core references: [Guess Who rules](https://instructions.hasbro.com/en-au/instruction/guess-who-original-guessing-game-board-game-for-kids-ages-6-and-up-for-2-players)
 and [classic Mastermind rules](https://www.hasbro.com/common/documents/430e4f3f6bfd10148a8ef35124427085/E0A7EB4950569047F5C0080A51F685F8.pdf).
+
+## Install as an app (PWA)
+
+Open [Jarcade](https://jarcade.jaypussy.site) online once and let it finish loading.
+On Android or desktop, use the browser's **Install app** option. On iPhone/iPad,
+use Safari's **Share → Add to Home Screen**. Installation opens a standalone
+window with the Jarcade icon; support depends on the browser.
+
+After the service worker finishes its first download, all local games and their
+routes can reopen offline, including after closing the browser. Saved settings,
+puzzles, private handoffs and scores remain in browser storage. Games using online
+rooms still need internet; room traffic and health checks are never cached.
+Browsers may clear local storage/cache, so offline access is not a backup.
+
+The build generates a versioned, SHA-256-verified cache of the minimal shell,
+WASM, scripts, manifest and installation icons. Large online card-art atlases are
+not downloaded in the background. A new worker waits until every Jarcade window
+or tab closes before activating; updates never force a running game to reload.
+Only old Jarcade shell caches are removed, keeping saved gameplay intact.
+
+Run `node --test scripts/*.test.cjs` and `node scripts/qa-pwa.cjs` (with Playwright
+available and a local server at port 8092). Browser checks cover installability,
+cold offline startup, private screens, saved gameplay, idle rendering and a real
+worker upgrade while two tabs are open.
