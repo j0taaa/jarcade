@@ -59,9 +59,9 @@ function gallery(w, h, count = 6) {
       await p.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').includes('Select Coupe'));
       for (let i=0;i<12;i++) { await p.keyboard.press('PageDown'); await p.waitForTimeout(40); }
       await p.screenshot({ path: `${artifacts}/multiplayer-${w}x${h}-${saver}.png`, scale:'css' });
-      const multi = gallery(w,h,11);
-      await p.touchscreen.tap(...multi.card(10,multi.maximum));
-      await p.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').startsWith('Jarcade. Ligue 4.'));
+      const multi = gallery(w,h,13);
+      await p.touchscreen.tap(...multi.card(12,multi.maximum));
+      await p.waitForFunction(() => document.querySelector('canvas').getAttribute('aria-label').startsWith('Jarcade. Batalha Naval.'));
       await idle(); assert.equal(await p.evaluate(() => window.__sockets), 0, 'Opening a room menu alone should not connect');
       if (w === 320 && !saver) {
         await p.goto(base); await p.waitForFunction(() => !document.getElementById('loading')); await waitHome();
@@ -73,6 +73,6 @@ function gallery(w, h, count = 6) {
       await context.close();
     }
     assert.deepEqual(errors, []);
-    console.log('Home: solo cards and eleventh multiplayer card, safe touch scrolling, keyboard visibility, category switching, idle FPS, native DPR 3 and twelve layouts passed.');
+    console.log('Home: solo cards and thirteenth multiplayer card, safe touch scrolling, keyboard visibility, category switching, idle FPS, native DPR 3 and twelve layouts passed.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

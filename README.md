@@ -748,3 +748,39 @@ Run `node --test scripts/*.test.cjs` and `node scripts/qa-pwa.cjs` (with Playwri
 available and a local server at port 8092). Browser checks cover installability,
 cold offline startup, private screens, saved gameplay, idle rendering and a real
 worker upgrade while two tabs are open.
+
+## Air Hockey and Batalha Naval
+
+Both are in Multiplayer and work locally on one device, including offline in
+the PWA. Their vector gameplay previews follow the shared white/black themes.
+
+**Air Hockey** (`/games/air-hockey`) supports two independent simultaneous
+touches, one mallet per half. On desktop, player 1 uses WASD, player 2 uses arrow
+keys; dragging with the mouse also controls a mallet. Space starts or pauses.
+First to seven goals wins; rematches retain match wins. Landscape rotates the
+table and input together. Physics runs at a fixed 240 Hz independently of the
+display rate, with interpolation between steps; normal rendering follows display refresh, power saver renders
+at 30 Hz, and paused/ready screens sleep. Leaving, resizing or losing focus
+pauses play. Collisions and goals use optional haptics.
+
+**Batalha Naval** (`/games/battleship`) uses the classic 10×10 board with ships
+of lengths 5, 4, 3, 3 and 2. Choose a ship, select its first cell, rotate if
+needed and confirm placement; the dice button generates a legal random fleet.
+Existing ships can be repositioned. Ships may touch, but cannot overlap or
+leave the board. Pass the concealed screen after each player's setup.
+Select a target and explicitly confirm the shot; turns alternate even after
+a hit. Each player can inspect their own fleet; the other fleet remains hidden
+until the game ends. Misses, hits and sunk ships have different vector marks.
+First to sink all five ships wins, and rematches alternate the starting player.
+Swipes scroll without selecting cells. Arrow keys select cells; R rotates,
+A randomizes the fleet, Enter confirms and Tab navigates controls.
+
+Naval setup, turns and shot reports are concealed on navigation, menus, focus
+loss, resize and reload. Saves are isolated in `jarcade.local-duel.v1` on the
+web and `local-duel.json` natively; they preserve match scores and private
+handoffs without connecting to a room. Rules and save validation are separate
+from rendering in `air_hockey.rs`, `battleship.rs` and `duel.rs`.
+Run `scripts/qa-duels.cjs` with Playwright and the development room server to
+verify real simultaneous touches, keyboard play, a complete naval match,
+privacy, saved progress and responsive high-DPI layouts.
+Naval reference: [Hasbro Battleship rules](https://www.hasbro.com/common/documents/dad261471c4311ddbd0b0800200c9a66/FA41E12F19B9F369105A9FF312FB74C3.pdf).

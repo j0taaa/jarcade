@@ -56,7 +56,7 @@ async function installationAndOffline() {
     // These routes were never loaded online in this profile.
     for(const [route,text]of [['/settings','Jarcade. Settings.'],['/games/sudoku','Jarcade. Sudoku.'],
       ['/games/nonograms','Jarcade. Nonograms.'],['/games/fih/bathroom','Jarcade. Fih.'],
-      ['/games/mastermind','CodeCover.'],['/games/guess-who','Cover { player: 0'],['/games/wavelength','Jarcade. Wavelength.']]) {
+      ['/games/air-hockey','Jarcade. Air Hockey.'],['/games/battleship','Cover { player: 0'],['/games/mastermind','CodeCover.'],['/games/guess-who','Cover { player: 0'],['/games/wavelength','Jarcade. Wavelength.']]) {
       assert((await offline.goto(base+route)).fromServiceWorker());await wait(offline,text);
     }
     await offline.goto(`${base}/games/coupe?room=ABC123`);await wait(offline,'Jarcade. Coupe.');
@@ -64,7 +64,7 @@ async function installationAndOffline() {
     assert.equal(await offline.evaluate(async()=>{try{await fetch('/health');return true}catch{return false}}),false);
     await context.setOffline(false);assert.equal((await offline.request.get(`${base}/health`)).status(),200);
     await offline.goto(`${base}/games/tic-tac-toe`);await wait(offline,'Won(0)');assert.deepEqual(errors,[]);
-    console.log('Manifest installability, worker-controlled cold offline launch after browser restart, saved win, seven unvisited routes, private covers, invites, live APIs and idle FPS passed.');
+    console.log('Manifest installability, worker-controlled cold offline launch after browser restart, saved win, nine unvisited routes, private covers, invites, live APIs and idle FPS passed.');
   } finally {if(context)await context.close();fs.rmSync(profile,{recursive:true,force:true});}
 }
 async function updates() {

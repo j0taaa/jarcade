@@ -1,5 +1,8 @@
+pub mod air_hockey;
+pub mod battleship;
 pub mod board_pan;
 pub mod curve;
+pub mod duel;
 pub mod feedback;
 pub mod fih;
 pub mod fih_ball;

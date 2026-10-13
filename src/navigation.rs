@@ -24,6 +24,8 @@ pub enum Route {
     Mastermind,
     TicTacToe,
     ConnectFour,
+    AirHockey,
+    Battleship,
     TableTennis,
     Nonograms,
     NonogramsPlay,
@@ -31,7 +33,7 @@ pub enum Route {
     SudokuPlay,
 }
 impl Route {
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 30] = [
         Self::SinglePlayer,
         Self::Multiplayer,
         Self::Settings,
@@ -55,6 +57,8 @@ impl Route {
         Self::Mastermind,
         Self::TicTacToe,
         Self::ConnectFour,
+        Self::AirHockey,
+        Self::Battleship,
         Self::TableTennis,
         Self::Nonograms,
         Self::NonogramsPlay,
@@ -86,6 +90,8 @@ impl Route {
             Self::Mastermind => "/games/mastermind",
             Self::TicTacToe => "/games/tic-tac-toe",
             Self::ConnectFour => "/games/connect-four",
+            Self::AirHockey => "/games/air-hockey",
+            Self::Battleship => "/games/battleship",
             Self::TableTennis => "/games/table-tennis",
             Self::Nonograms => "/games/nonograms",
             Self::NonogramsPlay => "/games/nonograms/play",
@@ -123,6 +129,8 @@ impl Route {
             Self::Mastermind => "Mastermind",
             Self::TicTacToe => "Jogo da Velha",
             Self::ConnectFour => "Ligue 4",
+            Self::AirHockey => "Air Hockey",
+            Self::Battleship => "Batalha Naval",
             Self::TableTennis => "Table tennis",
             Self::Nonograms | Self::NonogramsPlay => "Nonograms",
             Self::Sudoku | Self::SudokuPlay => "Sudoku",
